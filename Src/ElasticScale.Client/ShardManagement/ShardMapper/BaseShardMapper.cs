@@ -144,6 +144,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
                     csm.ResetTimeToLive();
                 }
 
+                this.Manager.Cache.IncrementPerformanceCounter(this.ShardMap.StoreShardMap, PerformanceCounterName.DdrOperationsPerSec);
                 return result;
             }
             catch (ShardManagementException smme)
@@ -160,10 +161,12 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
                         CacheStoreMappingUpdatePolicy.OverwriteExisting,
                         errorCategory);
 
-                    return this.ShardMap.OpenConnection(
+                    result = this.ShardMap.OpenConnection(
                         constructMapping(this.Manager, this.ShardMap, sm),
                         connectionString,
                         options);
+                    this.Manager.Cache.IncrementPerformanceCounter(this.ShardMap.StoreShardMap, PerformanceCounterName.DdrOperationsPerSec);
+                    return result;
                 }
                 else
                 {
@@ -211,6 +214,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
                         csm.ResetTimeToLive();
                     }
 
+                    this.Manager.Cache.IncrementPerformanceCounter(this.ShardMap.StoreShardMap, PerformanceCounterName.DdrOperationsPerSec);
                     return result;
                 }
                 else
@@ -261,7 +265,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
                 sm = await this.LookupMappingForOpenConnectionForKeyAsync(
                     sk,
                     CacheStoreMappingUpdatePolicy.OverwriteExisting,
-                    errorCategory);
+                    errorCategory).ConfigureAwait(false);
             }
 
             SqlConnection result;
@@ -274,7 +278,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
                 result = await this.ShardMap.OpenConnectionAsync(
                     constructMapping(this.Manager, this.ShardMap, sm),
                     connectionString,
-                    options);
+                    options).ConfigureAwait(false);
 
                 csm.ResetTimeToLiveIfNecessary();
 
@@ -339,14 +343,14 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
                 sm = await this.LookupMappingForOpenConnectionForKeyAsync(
                     sk,
                     cacheUpdatePolicyOnEx,
-                    errorCategory);
+                    errorCategory).ConfigureAwait(false);
             }
 
             // One last attempt to open the connection after a cache refresh
             result = await this.ShardMap.OpenConnectionAsync(
                         constructMapping(this.Manager, this.ShardMap, sm),
                         connectionString,
-                        options);
+                        options).ConfigureAwait(false);
 
             // Reset TTL on successful connection.
             csm.ResetTimeToLiveIfNecessary();
@@ -602,7 +606,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
                 true,
                 false))
             {
-                gsmResult = await op.DoAsync();
+                gsmResult = await op.DoAsync().ConfigureAwait(false);
             }
 
             stopwatch.Stop();
