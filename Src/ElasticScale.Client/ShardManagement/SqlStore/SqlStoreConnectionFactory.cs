@@ -1,10 +1,10 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
-using System;
-
 namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
 {
+    using System.Data.SqlClient;
+
     /// <summary>
     /// Constructs instance of Sql Store Connection.
     /// </summary>
@@ -21,21 +21,23 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         /// Constructs a new instance of store connection.
         /// </summary>
         /// <param name="kind">Type of store connection.</param>
-        /// <param name="connectionString">Connection string for store.</param>
+        /// <param name="connectionInfo">Connection info.</param>
         /// <returns>An unopened instance of the store connection.</returns>
-        public virtual IStoreConnection GetConnection(StoreConnectionKind kind, string connectionString)
+        public virtual IStoreConnection GetConnection(
+            StoreConnectionKind kind,
+            SqlConnectionInfo connectionInfo)
         {
-            return new SqlStoreConnection(kind, connectionString);
+            return new SqlStoreConnection(kind, connectionInfo);
         }
 
         /// <summary>
         /// Constructs a new instance of user connection.
         /// </summary>
-        /// <param name="connectionString">Connection string of user.</param>
+        /// <param name="connectionInfo">Connection info.</param>
         /// <returns>An unopened instance of the user connection.</returns>
-        public virtual IUserStoreConnection GetUserConnection(string connectionString)
+        public virtual IUserStoreConnection GetUserConnection(SqlConnectionInfo connectionInfo)
         {
-            return new SqlUserStoreConnection(connectionString);
+            return new SqlUserStoreConnection(connectionInfo);
         }
     }
 }

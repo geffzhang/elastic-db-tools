@@ -4,7 +4,6 @@
 using System;
 using System.Data.SqlClient;
 using System.Diagnostics;
-using System.Linq;
 
 namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
 {
@@ -54,6 +53,11 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         private string _patternForKill;
 
         /// <summary>
+        /// Does operation kill connection.
+        /// </summary>
+        private bool _killConnection;
+
+        /// <summary>
         /// Creates request to add shard to given shard map.
         /// </summary>
         /// <param name="shardMapManager">Shard map manager object.</param>
@@ -63,6 +67,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         /// <param name="mappingTarget">Updated mapping.</param>
         /// <param name="patternForKill">Pattern for kill commands.</param>
         /// <param name="lockOwnerId">Id of lock owner.</param>
+        /// <param name="killConnection">Whether to kill open connections.</param>
         protected internal UpdateMappingOperation(
             ShardMapManager shardMapManager,
             StoreOperationCode operationCode,
@@ -70,7 +75,8 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
             IStoreMapping mappingSource,
             IStoreMapping mappingTarget,
             string patternForKill,
-            Guid lockOwnerId) :
+            Guid lockOwnerId,
+            bool killConnection) :
             this(
             shardMapManager,
             Guid.NewGuid(),
@@ -82,7 +88,8 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
             patternForKill,
             lockOwnerId,
             default(Guid),
-            default(Guid))
+            default(Guid),
+            killConnection)
         {
         }
 
@@ -100,6 +107,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         /// <param name="lockOwnerId">Id of lock owner.</param>
         /// <param name="originalShardVersionRemoves">Original shard version for removes.</param>
         /// <param name="originalShardVersionAdds">Original shard version for adds.</param>
+        /// <param name="killConnection">Whether to kill open connections.</param>
         internal UpdateMappingOperation(
             ShardMapManager shardMapManager,
             Guid operationId,
@@ -111,7 +119,8 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
             string patternForKill,
             Guid lockOwnerId,
             Guid originalShardVersionRemoves,
-            Guid originalShardVersionAdds) :
+            Guid originalShardVersionAdds,
+            bool killConnection) :
             base(
             shardMapManager,
             operationId,
@@ -136,6 +145,8 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
                                        operationCode == StoreOperationCode.UpdateRangeMappingWithOffline;
 
             _patternForKill = patternForKill;
+
+            _killConnection = killConnection;
         }
 
         /// <summary>
@@ -169,7 +180,8 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
                     _shardMap,
                     _mappingSource,
                     _mappingTarget,
-                    _lockOwnerId));
+                    _lockOwnerId,
+                    _killConnection));
         }
 
         /// <summary>
@@ -243,7 +255,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
 
             // We need to treat the kill connection operation separately, the reason
             // being that we cannot perform kill operations within a transaction.
-            if (result.Result == StoreResult.Success && _fromOnlineToOffline)
+            if (result.Result == StoreResult.Success && _fromOnlineToOffline && _killConnection)
             {
                 this.KillConnectionsOnSourceShard();
             }
@@ -318,7 +330,8 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
                     _shardMap,
                     _mappingSource,
                     _mappingTarget,
-                    _lockOwnerId));
+                    _lockOwnerId,
+                    _killConnection));
         }
 
         /// <summary>
@@ -496,7 +509,8 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
                     _shardMap,
                     _mappingSource,
                     _mappingTarget,
-                    _lockOwnerId));
+                    _lockOwnerId,
+                    _killConnection));
         }
 
         /// <summary>
@@ -564,11 +578,11 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         {
             SqlUtils.WithSqlExceptionHandling(() =>
             {
-                string sourceShardConnectionString = this.GetConnectionStringForShardLocation(_mappingSource.StoreShard.Location);
-
                 IStoreResults result;
 
-                using (IStoreConnection connectionForKill = this.Manager.StoreConnectionFactory.GetConnection(StoreConnectionKind.LocalSource, sourceShardConnectionString))
+                using (IStoreConnection connectionForKill = this.Manager.StoreConnectionFactory.GetConnection(
+                    StoreConnectionKind.LocalSource,
+                    this.GetSqlStoreConnectionInfoForShardLocation(_mappingSource.StoreShard.Location)))
                 {
                     connectionForKill.Open();
 

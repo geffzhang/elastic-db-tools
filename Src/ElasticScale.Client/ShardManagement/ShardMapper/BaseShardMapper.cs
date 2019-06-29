@@ -73,18 +73,20 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         /// <param name="runUpdate">Delegate to perform update from the <paramref name="mapping">input mapping</paramref> and 
         /// the update object returned by <paramref name="getStatus">createUpdate</paramref>.</param>
         /// <param name="lockOwnerId">Lock owner id of this mapping</param>
+        /// <param name="options">Options for validation operations to perform on opened connection to affected shard.</param>
         /// <returns></returns>
         protected static TMapping SetStatus<TMapping, TUpdate, TStatus>(
             TMapping mapping,
             TStatus status,
             Func<TStatus, TStatus> getStatus,
             Func<TStatus, TUpdate> createUpdate,
-            Func<TMapping, TUpdate, Guid, TMapping> runUpdate,
-            Guid lockOwnerId = default(Guid))
+            Func<TMapping, TUpdate, Guid, MappingOptions, TMapping> runUpdate,
+            Guid lockOwnerId = default(Guid),
+            MappingOptions options = MappingOptions.Validate)
         {
             TStatus newStatus = getStatus(status);
             TUpdate update = createUpdate(newStatus);
-            return runUpdate(mapping, update, lockOwnerId);
+            return runUpdate(mapping, update, lockOwnerId, options);
         }
 
         /// <summary>
@@ -96,8 +98,8 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         /// <param name="key">Input key value.</param>
         /// <param name="constructMapping">Delegate to construct a mapping object.</param>
         /// <param name="errorCategory">Error category.</param>
-        /// <param name="connectionString">
-        /// Connection string with credential information, the DataSource and Database are 
+        /// <param name="connectionInfo">
+        /// Connection info with credential information, the DataSource and Database are 
         /// obtained from the results of the lookup operation for key.
         /// </param>
         /// <param name="options">Options for validation operations to perform on opened connection.</param>
@@ -106,7 +108,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
             TKey key,
             Func<ShardMapManager, ShardMap, IStoreMapping, TMapping> constructMapping,
             ShardManagementErrorCategory errorCategory,
-            string connectionString,
+            SqlConnectionInfo connectionInfo,
             ConnectionOptions options = ConnectionOptions.Validate) where TMapping : class, IShardProvider
         {
             ShardKey sk = new ShardKey(ShardKey.ShardKeyTypeFromType(typeof(TKey)), key);
@@ -135,7 +137,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
                 // Initially attempt to connect based on lookup results from either cache or GSM.
                 result = this.ShardMap.OpenConnection(
                     constructMapping(this.Manager, this.ShardMap, sm),
-                    connectionString,
+                    connectionInfo,
                     options);
 
                 // Reset TTL on successful connection.
@@ -163,7 +165,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
 
                     result = this.ShardMap.OpenConnection(
                         constructMapping(this.Manager, this.ShardMap, sm),
-                        connectionString,
+                        connectionInfo,
                         options);
                     this.Manager.Cache.IncrementPerformanceCounter(this.ShardMap.StoreShardMap, PerformanceCounterName.DdrOperationsPerSec);
                     return result;
@@ -205,7 +207,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
 
                     result = this.ShardMap.OpenConnection(
                         constructMapping(this.Manager, this.ShardMap, sm),
-                        connectionString,
+                        connectionInfo,
                         options);
 
                     // Reset TTL on successful connection.
@@ -236,8 +238,8 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         /// <param name="key">Input key value.</param>
         /// <param name="constructMapping">Delegate to construct a mapping object.</param>
         /// <param name="errorCategory">Error category.</param>
-        /// <param name="connectionString">
-        /// Connection string with credential information, the DataSource and Database are 
+        /// <param name="connectionInfo">
+        /// Connection info with credential information, the DataSource and Database are 
         /// obtained from the results of the lookup operation for key.
         /// </param>
         /// <param name="options">Options for validation operations to perform on opened connection.</param>
@@ -246,7 +248,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
             TKey key,
             Func<ShardMapManager, ShardMap, IStoreMapping, TMapping> constructMapping,
             ShardManagementErrorCategory errorCategory,
-            string connectionString,
+            SqlConnectionInfo connectionInfo,
             ConnectionOptions options = ConnectionOptions.Validate) where TMapping : class, IShardProvider
         {
             ShardKey sk = new ShardKey(ShardKey.ShardKeyTypeFromType(typeof(TKey)), key);
@@ -277,7 +279,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
                 // Initially attempt to connect based on lookup results from either cache or GSM.
                 result = await this.ShardMap.OpenConnectionAsync(
                     constructMapping(this.Manager, this.ShardMap, sm),
-                    connectionString,
+                    connectionInfo,
                     options).ConfigureAwait(false);
 
                 csm.ResetTimeToLiveIfNecessary();
@@ -349,7 +351,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
             // One last attempt to open the connection after a cache refresh
             result = await this.ShardMap.OpenConnectionAsync(
                         constructMapping(this.Manager, this.ShardMap, sm),
-                        connectionString,
+                        connectionInfo,
                         options).ConfigureAwait(false);
 
             // Reset TTL on successful connection.
@@ -461,66 +463,83 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         /// <typeparam name="TMapping">Mapping type.</typeparam>
         /// <typeparam name="TKey">Key type.</typeparam>
         /// <param name="key">Input key value.</param>
-        /// <param name="useCache">Whether to use cache for lookups.</param>
+        /// <param name="lookupOptions">Whether to use cache and/or storage for lookups.</param>
         /// <param name="constructMapping">Delegate to construct a mapping object.</param>
         /// <param name="errorCategory">Category under which errors must be thrown.</param>
         /// <returns>Mapping that contains the key value.</returns>
         protected TMapping Lookup<TMapping, TKey>(
             TKey key,
-            bool useCache,
+            LookupOptions lookupOptions,
             Func<ShardMapManager, ShardMap, IStoreMapping, TMapping> constructMapping,
             ShardManagementErrorCategory errorCategory)
             where TMapping : class, IShardProvider
         {
             ShardKey sk = new ShardKey(ShardKey.ShardKeyTypeFromType(typeof(TKey)), key);
 
-            if (useCache)
+            // Try to lookup in cache. Note the interation with cache removal later in this method.
+            bool tryLookupInCache = lookupOptions.HasFlag(LookupOptions.LookupInCache);
+            if (tryLookupInCache)
             {
                 ICacheStoreMapping cachedMapping = this.Manager.Cache.LookupMappingByKey(this.ShardMap.StoreShardMap, sk);
-
                 if (cachedMapping != null)
                 {
                     return constructMapping(this.Manager, this.ShardMap, cachedMapping.Mapping);
                 }
             }
 
-            // Cache-miss, find mapping for given key in GSM.
-            TMapping m = null;
-
-            IStoreResults gsmResult;
-
-            Stopwatch stopwatch = Stopwatch.StartNew();
-
-            using (IStoreOperationGlobal op = this.Manager.StoreOperationFactory.CreateFindMappingByKeyGlobalOperation(
-                this.Manager,
-                "Lookup",
-                this.ShardMap.StoreShardMap,
-                sk,
-                CacheStoreMappingUpdatePolicy.OverwriteExisting,
-                errorCategory,
-                true,
-                false))
+            // Cache-miss (or didn't use cache), find mapping for given key in GSM.
+            if (lookupOptions.HasFlag(LookupOptions.LookupInStore))
             {
-                gsmResult = op.Do();
+                IStoreResults gsmResult;
+
+                Stopwatch stopwatch = Stopwatch.StartNew();
+
+                using (IStoreOperationGlobal op = this.Manager.StoreOperationFactory.CreateFindMappingByKeyGlobalOperation(
+                    this.Manager,
+                    "Lookup",
+                    this.ShardMap.StoreShardMap,
+                    sk,
+                    CacheStoreMappingUpdatePolicy.OverwriteExisting,
+                    errorCategory,
+                    true,
+                    false))
+                {
+                    gsmResult = op.Do();
+                }
+
+                stopwatch.Stop();
+
+                Tracer.TraceVerbose(
+                    TraceSourceConstants.ComponentNames.BaseShardMapper,
+                    "Lookup",
+                    "Lookup key from GSM complete; Key type : {0}; Result: {1}; Duration: {2}",
+                    typeof(TKey),
+                    gsmResult.Result,
+                    stopwatch.Elapsed);
+
+                // If mapping was found, return it.
+                if (gsmResult.Result != StoreResult.MappingNotFoundForKey)
+                {
+                    return gsmResult.StoreMappings.Select(sm => constructMapping(this.Manager, this.ShardMap, sm)).Single();
+                }
+
+                // If we could not locate the mapping, then we might need to update the cache to remove it.
+                //
+                // Only do this if we didn't already try to return the mapping from the cache (since, if it was found,
+                // we would have already returned it earlier).
+                if (!tryLookupInCache)
+                {
+                    ICacheStoreMapping cachedMapping =
+                        this.Manager.Cache.LookupMappingByKey(this.ShardMap.StoreShardMap, sk);
+                    if (cachedMapping != null)
+                    {
+                        this.Manager.Cache.DeleteMapping(cachedMapping.Mapping);
+                    }
+                }
             }
 
-            stopwatch.Stop();
-
-            Tracer.TraceVerbose(
-                TraceSourceConstants.ComponentNames.BaseShardMapper,
-                "Lookup",
-                "Lookup key from GSM complete; Key type : {0}; Result: {1}; Duration: {2}",
-                typeof(TKey),
-                gsmResult.Result,
-                stopwatch.Elapsed);
-
-            // If we could not locate the mapping, we return null and do nothing here.
-            if (gsmResult.Result != StoreResult.MappingNotFoundForKey)
-            {
-                return gsmResult.StoreMappings.Select(sm => constructMapping(this.Manager, this.ShardMap, sm)).Single();
-            }
-
-            return m;
+            // Mapping not found - return null
+            return null;
         }
 
         /// <summary>
@@ -703,6 +722,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         /// <param name="statusAsInt">Delegate to get the mapping status as an integer value.</param>
         /// <param name="intAsStatus">Delegate to get the mapping status from an integer value.</param>
         /// <param name="lockOwnerId">Lock owner id of this mapping</param>
+        /// <param name="options">Options for validation operations to perform on opened connection to affected shard.</param>
         /// <returns>New instance of mapping with updated information.</returns>
         protected TMapping Update<TMapping, TUpdate, TStatus>(
             TMapping currentMapping,
@@ -710,7 +730,8 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
             Func<ShardMapManager, ShardMap, IStoreMapping, TMapping> constructMapping,
             Func<TStatus, int> statusAsInt,
             Func<int, TStatus> intAsStatus,
-            Guid lockOwnerId = default(Guid))
+            Guid lockOwnerId = default(Guid),
+            MappingOptions options = MappingOptions.Validate)
             where TUpdate : class, IMappingUpdate<TStatus>
             where TMapping : class, IShardProvider, IMappingInfoProvider
             where TStatus : struct
@@ -801,6 +822,8 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
                     StoreOperationCode.UpdateRangeMapping;
             }
 
+            var killConnection = options == MappingOptions.Validate;
+
             using (IStoreOperation op = this.Manager.StoreOperationFactory.CreateUpdateMappingOperation(
                 this.Manager,
                 opCode,
@@ -808,7 +831,8 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
                 originalMapping,
                 updatedMapping,
                 this.ShardMap.ApplicationNameSuffix,
-                lockOwnerId))
+                lockOwnerId,
+                killConnection))
             {
                 op.Do();
             }

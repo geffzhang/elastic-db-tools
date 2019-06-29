@@ -37,6 +37,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         internal StoreOperationGlobal(SqlShardMapManagerCredentials credentials, TransientFaultHandling.RetryPolicy retryPolicy, string operationName)
         {
             this.OperationName = operationName;
+
             _credentials = credentials;
             _retryPolicy = retryPolicy;
         }
@@ -313,7 +314,9 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         /// </summary>
         private void EstablishConnnection()
         {
-            _globalConnection = new SqlStoreConnection(StoreConnectionKind.Global, _credentials.ConnectionStringShardMapManager);
+            _globalConnection = new SqlStoreConnection(
+                StoreConnectionKind.Global,
+                _credentials.ConnectionInfoShardMapManager);
             _globalConnection.Open();
         }
 
@@ -323,7 +326,9 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         /// <returns>Task to await connection establishment</returns>
         private Task EstablishConnnectionAsync()
         {
-            _globalConnection = new SqlStoreConnection(StoreConnectionKind.Global, _credentials.ConnectionStringShardMapManager);
+            _globalConnection = new SqlStoreConnection(
+                StoreConnectionKind.Global,
+                _credentials.ConnectionInfoShardMapManager);
             return _globalConnection.OpenAsync();
         }
 

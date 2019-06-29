@@ -552,7 +552,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         /// <returns>Connection string for LSM given its location.</returns>
         protected string GetConnectionStringForShardLocation(ShardLocation location)
         {
-            return new SqlConnectionStringBuilder(this.Manager.Credentials.ConnectionStringShard)
+            return new SqlConnectionStringBuilder(this.Manager.Credentials.ConnectionInfoShardMapManager.ConnectionString)
             {
                 DataSource = location.DataSource,
                 InitialCatalog = location.Database
@@ -561,12 +561,22 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         }
 
         /// <summary>
+        /// Obtains the Secure Credential for an LSM location.
+        /// </summary>
+        /// <returns>Connection string for LSM given its location.</returns>
+        protected SqlConnectionInfo GetSqlStoreConnectionInfoForShardLocation(ShardLocation location)
+        {
+            return this.Manager.Credentials.ConnectionInfoShardMapManager.CloneWithUpdatedConnectionString(
+                this.GetConnectionStringForShardLocation(location));
+        }
+
+        /// <summary>
         /// Given a state of the Do operation progress, gets the corresponding starting point
         /// for Undo operations.
         /// </summary>
         /// <param name="doState">State at which Do operation was executing.</param>
         /// <returns>Corresponding state for Undo operation.</returns>
-        private static StoreOperationState UndoStateForDoState(StoreOperationState doState)
+            private static StoreOperationState UndoStateForDoState(StoreOperationState doState)
         {
             switch (doState)
             {
@@ -644,7 +654,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
             // Open global & local connections and acquire application level locks for the corresponding scope.
             _globalConnection = this.Manager.StoreConnectionFactory.GetConnection(
                 StoreConnectionKind.Global,
-                this.Manager.Credentials.ConnectionStringShardMapManager);
+                this.Manager.Credentials.ConnectionInfoShardMapManager);
 
             _globalConnection.OpenWithLock(this.Id);
 
@@ -654,7 +664,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
 
                 _localConnectionSource = this.Manager.StoreConnectionFactory.GetConnection(
                     StoreConnectionKind.LocalSource,
-                    this.GetConnectionStringForShardLocation(sci.SourceLocation));
+                    GetSqlStoreConnectionInfoForShardLocation(sci.SourceLocation));
 
                 _localConnectionSource.OpenWithLock(this.Id);
             }
@@ -667,7 +677,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
 
                 _localConnectionTarget = this.Manager.StoreConnectionFactory.GetConnection(
                     StoreConnectionKind.LocalTarget,
-                    this.GetConnectionStringForShardLocation(sci.TargetLocation));
+                    GetSqlStoreConnectionInfoForShardLocation(sci.TargetLocation));
 
                 _localConnectionTarget.OpenWithLock(this.Id);
             }

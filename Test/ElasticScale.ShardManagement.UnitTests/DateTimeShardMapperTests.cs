@@ -1,8 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
-using Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.Fakes;
-using Microsoft.Azure.SqlDatabase.ElasticScale.Test.Common;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
 using System.Collections.Generic;
@@ -384,7 +382,8 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
 
             lsm.DeleteMapping(mappingToDelete);
 
-            // Verify that the mapping is removed from cache.
+            // Try to get from store. Because the mapping is missing from the store, we will try to
+            // invalidate the cache, but since it is also missing from cache there will be an cache miss.
             bool lookupFailed = false;
             try
             {
@@ -398,7 +397,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             }
 
             Assert.IsTrue(lookupFailed);
-            Assert.AreEqual(0, countingCache.LookupMappingMissCount);
+            Assert.AreEqual(1, countingCache.LookupMappingMissCount);
         }
 
         /// <summary>
@@ -459,7 +458,9 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             IStoreResults result;
             using (IStoreConnection conn = new SqlStoreConnectionFactory().GetConnection(
                 StoreConnectionKind.Global,
-                Globals.ShardMapManagerConnectionString))
+                new SqlConnectionInfo(
+                    Globals.ShardMapManagerConnectionString,
+                    null)))
             {
                 conn.Open();
 

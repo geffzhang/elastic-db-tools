@@ -3,7 +3,6 @@
 
 using System;
 using System.Data.SqlClient;
-using System.Diagnostics;
 
 namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
 {
@@ -13,27 +12,41 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
     internal sealed class SqlShardMapManagerCredentials
     {
         /// <summary>
-        /// Connection string for shard map manager database.
+        /// Shard map manager data source
         /// </summary>
-        private SqlConnectionStringBuilder _connectionStringShardMapManager;
+        private readonly string _smmDataSource;
 
         /// <summary>
-        /// Connection string for individual shards.
+        /// Shard map manager database
         /// </summary>
-        private SqlConnectionStringBuilder _connectionStringShard;
+        private readonly string _smmInitialCatalog;
 
         /// <summary>
-        /// Instantiates the object that holds the credentials for accessing SQL Servers 
+        /// Instantiates the object that holds the credentials for accessing SQL Servers
         /// containing the shard map manager data.
         /// </summary>
-        /// <param name="connectionString">Connection string for Shard map manager data source.</param>
+        /// <param name="connectionString">
+        /// Connection string for shard map manager data source.
+        /// </param>
         public SqlShardMapManagerCredentials(string connectionString)
+            : this(new SqlConnectionInfo(connectionString, null))
         {
-            ExceptionUtils.DisallowNullArgument(connectionString, "connectionString");
+        }
+
+        /// <summary>
+        /// Instantiates the object that holds the credentials for accessing SQL Servers
+        /// containing the shard map manager data.
+        /// </summary>
+        /// <param name="connectionInfo">
+        /// Connection info for shard map manager data source.
+        /// </param>
+        public SqlShardMapManagerCredentials(SqlConnectionInfo connectionInfo)
+        {
+            ExceptionUtils.DisallowNullArgument(connectionInfo, "connectionInfo");
 
             // Devnote: If connection string specifies Active Directory authentication and runtime is not
             // .NET 4.6 or higher, then below call will throw.
-            SqlConnectionStringBuilder connectionStringBuilder = new SqlConnectionStringBuilder(connectionString);
+            SqlConnectionStringBuilder connectionStringBuilder = new SqlConnectionStringBuilder(connectionInfo.ConnectionString);
 
             #region GSM Validation
 
@@ -58,48 +71,49 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
             }
 
             // Ensure credentials are specified for GSM connectivity.
-            SqlShardMapManagerCredentials.EnsureCredentials(connectionStringBuilder, "connectionString");
+            SqlShardMapManagerCredentials.EnsureCredentials(
+                connectionStringBuilder,
+                "connectionString",
+                connectionInfo.Credential);
 
             #endregion GSM Validation
 
-            // Copy the input connection strings.
-            _connectionStringShardMapManager = new SqlConnectionStringBuilder(connectionStringBuilder.ConnectionString);
+            // Generate connectionInfoShardMapManager
+            SqlConnectionStringBuilder connectionStringShardMapManager = new SqlConnectionStringBuilder(connectionStringBuilder.ConnectionString);
 
-            _connectionStringShardMapManager.ApplicationName = ApplicationNameHelper.AddApplicationNameSuffix(
-                _connectionStringShardMapManager.ApplicationName,
+            connectionStringShardMapManager.ApplicationName = ApplicationNameHelper.AddApplicationNameSuffix(
+                connectionStringShardMapManager.ApplicationName,
                 GlobalConstants.ShardMapManagerInternalConnectionSuffixGlobal);
 
-            _connectionStringShard = new SqlConnectionStringBuilder(connectionStringBuilder.ConnectionString);
+            _smmDataSource = connectionStringShardMapManager.DataSource;
+            _smmInitialCatalog = connectionStringShardMapManager.InitialCatalog;
 
-            _connectionStringShard.Remove("Data Source");
-            _connectionStringShard.Remove("Initial Catalog");
+            this.ConnectionInfoShardMapManager =
+                connectionInfo.CloneWithUpdatedConnectionString(connectionStringShardMapManager.ConnectionString);
 
-            _connectionStringShard.ApplicationName = ApplicationNameHelper.AddApplicationNameSuffix(
-                _connectionStringShard.ApplicationName,
+            // Generate connectionInfoShard
+            SqlConnectionStringBuilder connectionStringShard = new SqlConnectionStringBuilder(connectionStringBuilder.ConnectionString);
+
+            connectionStringShard.Remove("Data Source");
+            connectionStringShard.Remove("Initial Catalog");
+
+            connectionStringShard.ApplicationName = ApplicationNameHelper.AddApplicationNameSuffix(
+                connectionStringShard.ApplicationName,
                 GlobalConstants.ShardMapManagerInternalConnectionSuffixLocal);
+
+            this.ConnectionInfoShard =
+                connectionInfo.CloneWithUpdatedConnectionString(connectionStringShard.ConnectionString);
         }
 
         /// <summary>
-        /// Connection string for shard map manager database.
+        /// Connection info for shard map manager database.
         /// </summary>
-        public string ConnectionStringShardMapManager
-        {
-            get
-            {
-                return _connectionStringShardMapManager.ConnectionString;
-            }
-        }
+        public SqlConnectionInfo ConnectionInfoShardMapManager { get; private set; }
 
         /// <summary>
-        /// Connection string for shards.
+        /// Connection info for shards.
         /// </summary>
-        public string ConnectionStringShard
-        {
-            get
-            {
-                return _connectionStringShard.ConnectionString;
-            }
-        }
+        public SqlConnectionInfo ConnectionInfoShard { get; private set; }
 
         /// <summary>
         /// Location of Shard Map Manager used for logging purpose.
@@ -110,17 +124,27 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
             {
                 return StringUtils.FormatInvariant(
                 "[DataSource={0} Database={1}]",
-                _connectionStringShardMapManager.DataSource,
-                _connectionStringShardMapManager.InitialCatalog);
+                _smmDataSource,
+                _smmInitialCatalog);
             }
         }
 
         /// <summary>
         /// Ensures that credentials are provided for the given connection string object.
         /// </summary>
-        /// <param name="connectionString">Input connection string object.</param>
-        /// <param name="parameterName">Parameter name of the connection string object.</param>
-        internal static void EnsureCredentials(SqlConnectionStringBuilder connectionString, string parameterName)
+        /// <param name="connectionString">
+        /// Input connection string object.
+        /// </param>
+        /// <param name="parameterName">
+        /// Parameter name of the connection string object.
+        /// </param>
+        /// <param name="secureCredential">
+        /// Input secure SQL credential object.
+        /// </param>
+        internal static void EnsureCredentials(
+            SqlConnectionStringBuilder connectionString,
+            string parameterName,
+            SqlCredential secureCredential)
         {
             // Check for integrated authentication
             if (connectionString.IntegratedSecurity)
@@ -129,30 +153,85 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
             }
 
             // Check for active directory integrated authentication (if supported)
-            if (connectionString.ContainsKey(ShardMapUtils.Authentication) &&
-                connectionString[ShardMapUtils.Authentication].ToString().Equals(ShardMapUtils.ActiveDirectoryIntegratedStr))
+            if (connectionString.ContainsKey(ShardMapUtils.Authentication))
             {
-                return;
+                string authentication = connectionString[ShardMapUtils.Authentication].ToString();
+                if (authentication.Equals(ShardMapUtils.ActiveDirectoryIntegratedStr, StringComparison.OrdinalIgnoreCase)
+                    || authentication.Equals(ShardMapUtils.ActiveDirectoryInteractiveStr, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
             }
 
-            // UserID must be set when integrated authentication is disabled.
-            if (string.IsNullOrEmpty(connectionString.UserID))
-            {
-                throw new ArgumentException(
-                    StringUtils.FormatInvariant(
-                        Errors._SqlShardMapManagerCredentials_ConnectionStringPropertyRequired,
-                        "UserID"),
-                    parameterName);
-            }
+            // If secure credential not specified, verify that user/pwd are in the connection string. If secure credential
+            // specified, verify user/pwd are not in insecurely in the connection string.
+            bool expectUserIdPasswordInConnectionString = secureCredential == null;
+            EnsureHasCredential(
+                connectionString,
+                parameterName,
+                expectUserIdPasswordInConnectionString);
+        }
 
-            // Password must be set when integrated authentication is disabled.
-            if (string.IsNullOrEmpty(connectionString.Password))
+        /// <summary>
+        /// Ensures that credentials are provided for the given connection string object.
+        /// </summary>
+        /// <param name="connectionString">
+        /// Input connection string object.
+        /// </param>
+        /// <param name="parameterName">
+        /// Parameter name of the connection string object.
+        /// </param>
+        /// <param name="expectUserIdPassword">
+        /// True if <paramref name="connectionString"/> is expected to have user id & password, otherwise false.
+        /// </param>
+        private static void EnsureHasCredential(
+            SqlConnectionStringBuilder connectionString,
+            string parameterName,
+            bool expectUserIdPassword)
+        {
+            if (expectUserIdPassword)
             {
-                throw new ArgumentException(
-                    StringUtils.FormatInvariant(
-                        Errors._SqlShardMapManagerCredentials_ConnectionStringPropertyRequired,
-                        "Password"),
-                    parameterName);
+                // UserID must be set when integrated authentication is disabled.
+                if (string.IsNullOrEmpty(connectionString.UserID))
+                {
+                    throw new ArgumentException(
+                        StringUtils.FormatInvariant(
+                            Errors._SqlShardMapManagerCredentials_ConnectionStringPropertyRequired,
+                            "UserID"),
+                        parameterName);
+                }
+
+                // Password must be set when integrated authentication is disabled.
+                if (string.IsNullOrEmpty(connectionString.Password))
+                {
+                    throw new ArgumentException(
+                        StringUtils.FormatInvariant(
+                            Errors._SqlShardMapManagerCredentials_ConnectionStringPropertyRequired,
+                            "Password"),
+                        parameterName);
+                }
+            }
+            else
+            {
+                // UserID must NOT be set when a secure SQL credential is provided.
+                if (!string.IsNullOrEmpty(connectionString.UserID))
+                {
+                    throw new ArgumentException(
+                        StringUtils.FormatInvariant(
+                            Errors._SqlShardMapManagerCredentials_ConnectionStringPropertyNotAllowed,
+                            "UserID"),
+                        parameterName);
+                }
+
+                // Password must NOT be set when a secure SQL credential is provided.
+                if (!string.IsNullOrEmpty(connectionString.Password))
+                {
+                    throw new ArgumentException(
+                        StringUtils.FormatInvariant(
+                            Errors._SqlShardMapManagerCredentials_ConnectionStringPropertyNotAllowed,
+                            "Password"),
+                        parameterName);
+                }
             }
         }
     }

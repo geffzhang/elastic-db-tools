@@ -173,13 +173,20 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         {
             // Open connection.
             SqlConnectionStringBuilder localConnectionString =
-                new SqlConnectionStringBuilder(_credentials.ConnectionStringShard)
+                new SqlConnectionStringBuilder(_credentials.ConnectionInfoShard.ConnectionString)
                 {
                     DataSource = this.Location.DataSource,
                     InitialCatalog = this.Location.Database
                 };
 
-            _localConnection = new SqlStoreConnection(StoreConnectionKind.LocalSource, localConnectionString.ConnectionString);
+            SqlConnectionInfo localConnectionInfo =
+                _credentials.ConnectionInfoShard.CloneWithUpdatedConnectionString(
+                    localConnectionString.ConnectionString);
+
+            _localConnection = new SqlStoreConnection(
+                StoreConnectionKind.LocalSource,
+                localConnectionInfo);
+
             _localConnection.Open();
         }
 

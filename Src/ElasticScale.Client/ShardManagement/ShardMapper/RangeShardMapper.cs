@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.Data.SqlClient;
-using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -41,11 +40,35 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
             string connectionString,
             ConnectionOptions options = ConnectionOptions.Validate)
         {
+            return this.OpenConnectionForKey(
+                key,
+                new SqlConnectionInfo(
+                    connectionString,
+                    null),
+                options);
+        }
+
+        /// <summary>
+        /// Given a key value, obtains a SqlConnection to the shard in the mapping
+        /// that contains the key value.
+        /// </summary>
+        /// <param name="key">Input key value.</param>
+        /// <param name="connectionInfo">
+        /// Connection info with credential information, the DataSource and Database are 
+        /// obtained from the results of the lookup operation for key.
+        /// </param>
+        /// <param name="options">Options for validation operations to perform on opened connection.</param>
+        /// <returns>An opened SqlConnection.</returns>
+        public SqlConnection OpenConnectionForKey(
+            TKey key,
+            SqlConnectionInfo connectionInfo,
+            ConnectionOptions options = ConnectionOptions.Validate)
+        {
             return this.OpenConnectionForKey<RangeMapping<TKey>, TKey>(
                 key,
                 (smm, sm, ssm) => new RangeMapping<TKey>(smm, sm, ssm),
                 ShardManagementErrorCategory.RangeShardMap,
-                connectionString,
+                connectionInfo,
                 options);
         }
 
@@ -65,12 +88,37 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
             string connectionString,
             ConnectionOptions options = ConnectionOptions.Validate)
         {
-            return await this.OpenConnectionForKeyAsync<RangeMapping<TKey>, TKey>(
+            return await this.OpenConnectionForKeyAsync(
                 key,
-                (smm, sm, ssm) => new RangeMapping<TKey>(smm, sm, ssm),
-                ShardManagementErrorCategory.RangeShardMap,
-                connectionString,
+                new SqlConnectionInfo(
+                    connectionString,
+                    null),
                 options).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Given a key value, asynchronously obtains a SqlConnection to the shard in the mapping
+        /// that contains the key value.
+        /// </summary>
+        /// <param name="key">Input key value.</param>
+        /// <param name="connectionString">
+        /// Connection string with credential information, the DataSource and Database are 
+        /// obtained from the results of the lookup operation for key.
+        /// </param>
+        /// <param name="secureCredential">Secure SQL Credential.</param>
+        /// <param name="options">Options for validation operations to perform on opened connection.</param>
+        /// <returns>A Task encapsulating an opened SqlConnection.</returns>
+        public async Task<SqlConnection> OpenConnectionForKeyAsync(
+            TKey key,
+            SqlConnectionInfo connectionInfo,
+            ConnectionOptions options = ConnectionOptions.Validate)
+        {
+            return await this.OpenConnectionForKeyAsync<RangeMapping<TKey>, TKey>(
+                       key,
+                       (smm, sm, ssm) => new RangeMapping<TKey>(smm, sm, ssm),
+                       ShardManagementErrorCategory.RangeShardMap,
+                       connectionInfo,
+                       options).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -78,8 +126,9 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         /// </summary>
         /// <param name="mapping">Input range mapping.</param>
         /// <param name="lockOwnerId">Lock owner id of this mapping</param>
+        /// <param name="options">Options for validation operations to perform on opened connection to affected shard.</param>
         /// <returns>An offline mapping.</returns>
-        public RangeMapping<TKey> MarkMappingOffline(RangeMapping<TKey> mapping, Guid lockOwnerId)
+        public RangeMapping<TKey> MarkMappingOffline(RangeMapping<TKey> mapping, Guid lockOwnerId, MappingOptions options)
         {
             return BaseShardMapper.SetStatus<RangeMapping<TKey>, RangeMappingUpdate, MappingStatus>(
                 mapping,
@@ -87,7 +136,8 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
                 s => MappingStatus.Offline,
                 s => new RangeMappingUpdate() { Status = s },
                 this.Update,
-                lockOwnerId);
+                lockOwnerId,
+                options);
         }
 
         /// <summary>
@@ -136,13 +186,13 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         /// Looks up the key value and returns the corresponding mapping.
         /// </summary>
         /// <param name="key">Input key value.</param>
-        /// <param name="useCache">Whether to use cache for lookups.</param>
+        /// <param name="lookupOptions">Whether to search in the cache and/or store.</param>
         /// <returns>Mapping that contains the key value.</returns>
-        public RangeMapping<TKey> Lookup(TKey key, bool useCache)
+        public RangeMapping<TKey> Lookup(TKey key, LookupOptions lookupOptions)
         {
             RangeMapping<TKey> p = this.Lookup<RangeMapping<TKey>, TKey>(
                 key,
-                useCache,
+                lookupOptions,
                 (smm, sm, ssm) => new RangeMapping<TKey>(smm, sm, ssm),
                 ShardManagementErrorCategory.RangeShardMap);
 
@@ -164,14 +214,14 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         /// Tries to looks up the key value and returns the corresponding mapping.
         /// </summary>
         /// <param name="key">Input key value.</param>
-        /// <param name="useCache">Whether to use cache for lookups.</param>
+        /// <param name="lookupOptions">Whether to search in the cache and/or store.</param>
         /// <param name="mapping">Mapping that contains the key value.</param>
         /// <returns><c>true</c> if mapping is found, <c>false</c> otherwise.</returns>
-        public bool TryLookup(TKey key, bool useCache, out RangeMapping<TKey> mapping)
+        public bool TryLookup(TKey key, LookupOptions lookupOptions, out RangeMapping<TKey> mapping)
         {
             RangeMapping<TKey> p = this.Lookup<RangeMapping<TKey>, TKey>(
                 key,
-                useCache,
+                lookupOptions,
                 (smm, sm, ssm) => new RangeMapping<TKey>(smm, sm, ssm),
                 ShardManagementErrorCategory.RangeShardMap);
 
@@ -203,8 +253,9 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         /// <param name="currentMapping">Mapping being updated.</param>
         /// <param name="update">Updated properties of the Shard.</param>
         /// <param name="lockOwnerId">Lock owner id of this mapping</param>
+        /// <param name="options">Options for validation operations to perform on opened connection to affected shard.</param>
         /// <returns>New instance of mapping with updated information.</returns>
-        internal RangeMapping<TKey> Update(RangeMapping<TKey> currentMapping, RangeMappingUpdate update, Guid lockOwnerId)
+        internal RangeMapping<TKey> Update(RangeMapping<TKey> currentMapping, RangeMappingUpdate update, Guid lockOwnerId, MappingOptions options)
         {
             return this.Update<RangeMapping<TKey>, RangeMappingUpdate, MappingStatus>(
                 currentMapping,
@@ -212,7 +263,8 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
                 (smm, sm, ssm) => new RangeMapping<TKey>(smm, sm, ssm),
                 rms => (int)rms,
                 i => (MappingStatus)i,
-                lockOwnerId);
+                lockOwnerId,
+                options);
         }
 
         /// <summary>

@@ -59,6 +59,29 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
 
         /// <summary>
         /// Opens a regular <see cref="SqlConnection"/> to the shard 
+        /// to which the specified key value is mapped, with <see cref="ConnectionOptions.Validate"/>.
+        /// </summary>
+        /// <param name="key">Input key value.</param>
+        /// <param name="connectionString">
+        /// Connection string with credential information such as SQL Server credentials or Integrated Security settings. 
+        /// The hostname of the server and the database name for the shard are obtained from the lookup operation for key.
+        /// </param>
+        /// <param name="secureCredential">Secure SQL Credential.</param>
+        /// <returns>An opened SqlConnection.</returns>
+        /// <remarks>
+        /// Note that the <see cref="SqlConnection"/> object returned by this call is not protected against transient faults. 
+        /// Callers should follow best practices to protect the connection against transient faults 
+        /// in their application code, e.g., by using the transient fault handling 
+        /// functionality in the Enterprise Library from Microsoft Patterns and Practices team.
+        /// </remarks>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1061:DoNotHideBaseClassMethods")]
+        public SqlConnection OpenConnectionForKey(TKey key, string connectionString, SqlCredential secureCredential)
+        {
+            return this.OpenConnectionForKey(key, connectionString, secureCredential, ConnectionOptions.Validate);
+        }
+
+        /// <summary>
+        /// Opens a regular <see cref="SqlConnection"/> to the shard 
         /// to which the specified key value is mapped.
         /// </summary>
         /// <param name="key">Input key value.</param>
@@ -77,11 +100,38 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1061:DoNotHideBaseClassMethods")]
         public SqlConnection OpenConnectionForKey(TKey key, string connectionString, ConnectionOptions options)
         {
+            return this.OpenConnectionForKey(key, connectionString, null, options);
+        }
+
+        /// <summary>
+        /// Opens a regular <see cref="SqlConnection"/> to the shard 
+        /// to which the specified key value is mapped.
+        /// </summary>
+        /// <param name="key">Input key value.</param>
+        /// <param name="connectionString">
+        /// Connection string with credential information such as SQL Server credentials or Integrated Security settings. 
+        /// The hostname of the server and the database name for the shard are obtained from the lookup operation for key.
+        /// </param>
+        /// <param name="secureCredential">Secure SQL Credential.</param>
+        /// <param name="options">Options for validation operations to perform on opened connection.</param>
+        /// <returns>An opened SqlConnection.</returns>
+        /// <remarks>
+        /// Note that the <see cref="SqlConnection"/> object returned by this call is not protected against transient faults. 
+        /// Callers should follow best practices to protect the connection against transient faults 
+        /// in their application code, e.g., by using the transient fault handling 
+        /// functionality in the Enterprise Library from Microsoft Patterns and Practices team.
+        /// </remarks>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1061:DoNotHideBaseClassMethods")]
+        public SqlConnection OpenConnectionForKey(TKey key, string connectionString, SqlCredential secureCredential, ConnectionOptions options)
+        {
             ExceptionUtils.DisallowNullArgument(connectionString, "connectionString");
 
             using (ActivityIdScope activityIdScope = new ActivityIdScope(Guid.NewGuid()))
             {
-                return _lsm.OpenConnectionForKey(key, connectionString, options);
+                return _lsm.OpenConnectionForKey(
+                    key,
+                    new SqlConnectionInfo(connectionString, secureCredential),
+                    options);
             }
         }
 
@@ -114,6 +164,30 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
 
         /// <summary>
         /// Asynchronously opens a regular <see cref="SqlConnection"/> to the shard 
+        /// to which the specified key value is mapped, with <see cref="ConnectionOptions.Validate"/>.
+        /// </summary>
+        /// <param name="key">Input key value.</param>
+        /// <param name="connectionString">
+        /// Connection string with credential information such as SQL Server credentials or Integrated Security settings. 
+        /// The hostname of the server and the database name for the shard are obtained from the lookup operation for key.
+        /// </param>
+        /// <param name="secureCredential">Secure SQL Credential.</param>
+        /// <returns>A Task encapsulating an open SqlConnection as the result</returns>
+        /// <remarks>
+        /// Note that the <see cref="SqlConnection"/> object returned by this call is not protected against transient faults. 
+        /// Callers should follow best practices to protect the connection against transient faults 
+        /// in their application code, e.g., by using the transient fault handling 
+        /// functionality in the Enterprise Library from Microsoft Patterns and Practices team.
+        /// All non-usage error related exceptions are reported via the returned Task.
+        /// </remarks>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1061:DoNotHideBaseClassMethods")]
+        public Task<SqlConnection> OpenConnectionForKeyAsync(TKey key, string connectionString, SqlCredential secureCredential)
+        {
+            return this.OpenConnectionForKeyAsync(key, connectionString, secureCredential, ConnectionOptions.Validate);
+        }
+
+        /// <summary>
+        /// Asynchronously opens a regular <see cref="SqlConnection"/> to the shard 
         /// to which the specified key value is mapped.
         /// </summary>
         /// <param name="key">Input key value.</param>
@@ -133,11 +207,41 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1061:DoNotHideBaseClassMethods")]
         public Task<SqlConnection> OpenConnectionForKeyAsync(TKey key, string connectionString, ConnectionOptions options)
         {
+            return OpenConnectionForKeyAsync(key, connectionString, null, options);
+        }
+
+        /// <summary>
+        /// Asynchronously opens a regular <see cref="SqlConnection"/> to the shard 
+        /// to which the specified key value is mapped.
+        /// </summary>
+        /// <param name="key">Input key value.</param>
+        /// <param name="connectionString">
+        /// Connection string with credential information such as SQL Server credentials or Integrated Security settings. 
+        /// The hostname of the server and the database name for the shard are obtained from the lookup operation for key.
+        /// </param>
+        /// <param name="secureCredential">Secure SQL Credential.</param>
+        /// <param name="options">Options for validation operations to perform on opened connection.</param>
+        /// <returns>A Task encapsulating an opened SqlConnection.</returns>
+        /// <remarks>
+        /// Note that the <see cref="SqlConnection"/> object returned by this call is not protected against transient faults. 
+        /// Callers should follow best practices to protect the connection against transient faults 
+        /// in their application code, e.g., by using the transient fault handling 
+        /// functionality in the Enterprise Library from Microsoft Patterns and Practices team.
+        /// All non-usage error related exceptions are reported via the returned Task.
+        /// </remarks>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1061:DoNotHideBaseClassMethods")]
+        public Task<SqlConnection> OpenConnectionForKeyAsync(TKey key, string connectionString, SqlCredential secureCredential, ConnectionOptions options)
+        {
             ExceptionUtils.DisallowNullArgument(connectionString, "connectionString");
 
             using (ActivityIdScope activityIdScope = new ActivityIdScope(Guid.NewGuid()))
             {
-                return _lsm.OpenConnectionForKeyAsync(key, connectionString, options);
+                return _lsm.OpenConnectionForKeyAsync(
+                    key,
+                    new SqlConnectionInfo(
+                        connectionString,
+                        secureCredential),
+                    options);
             }
         }
 
@@ -286,26 +390,41 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
 
         /// <summary>
         /// Looks up the key value and returns the corresponding mapping.
+        /// Only the global shard map store is searched, not the local cache.
         /// </summary>
+        /// <remarks>
+        /// This is equivalent to <c>GetMappingForKey(key, LookupOptions.LookupInStore)</c>.
+        /// </remarks>
         /// <param name="key">Input key value.</param>
         /// <returns>Mapping that contains the key value.</returns>
         public PointMapping<TKey> GetMappingForKey(TKey key)
         {
+            return GetMappingForKey(key, LookupOptions.LookupInStore);
+        }
+
+        /// <summary>
+        /// Looks up the key value and returns the corresponding mapping.
+        /// </summary>
+        /// <param name="key">Input key value.</param>
+        /// <param name="lookupOptions">Whether to search in the cache and/or store.</param>
+        /// <returns>Mapping that contains the key value.</returns>
+        public PointMapping<TKey> GetMappingForKey(TKey key, LookupOptions lookupOptions)
+        {
             using (ActivityIdScope activityIdScope = new ActivityIdScope(Guid.NewGuid()))
             {
                 Tracer.TraceInfo(TraceSourceConstants.ComponentNames.ListShardMap,
-                    "LookupPointMapping", "Start; ShardMap name: {0}; Point Mapping Key Type: {1}",
-                    this.Name, typeof(TKey));
+                    "LookupPointMapping", "Start; ShardMap name: {0}; Point Mapping Key Type: {1}; Lookup Options: {2}",
+                    this.Name, typeof(TKey), lookupOptions);
 
                 Stopwatch stopwatch = Stopwatch.StartNew();
 
-                PointMapping<TKey> pointMapping = _lsm.Lookup(key, false);
+                PointMapping<TKey> pointMapping = _lsm.Lookup(key, lookupOptions);
 
                 stopwatch.Stop();
 
                 Tracer.TraceInfo(TraceSourceConstants.ComponentNames.ListShardMap,
-                    "LookupPointMapping", "Complete; ShardMap name: {0}; Point Mapping Key Type: {1}; Duration: {2}",
-                    this.Name, typeof(TKey), stopwatch.Elapsed);
+                    "LookupPointMapping", "Complete; ShardMap name: {0}; Point Mapping Key Type: {1}; Lookup Options: {2}; Duration: {3}",
+                    this.Name, typeof(TKey), lookupOptions, stopwatch.Elapsed);
 
                 return pointMapping;
             }
@@ -313,11 +432,27 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
 
         /// <summary>
         /// Tries to looks up the key value and place the corresponding mapping in <paramref name="pointMapping"/>.
+        /// Only the global shard map store is searched, not the local cache.
         /// </summary>
+        /// <remarks>
+        /// This is equivalent to <c>TryGetMappingForKey(key, LookupOptions.LookupInStore, out pointMapping)</c>.
+        /// </remarks>
         /// <param name="key">Input key value.</param>
         /// <param name="pointMapping">Mapping that contains the key value.</param>
         /// <returns><c>true</c> if mapping is found, <c>false</c> otherwise.</returns>
         public bool TryGetMappingForKey(TKey key, out PointMapping<TKey> pointMapping)
+        {
+            return TryGetMappingForKey(key, LookupOptions.LookupInStore, out pointMapping);
+        }
+
+        /// <summary>
+        /// Tries to looks up the key value and place the corresponding mapping in <paramref name="pointMapping"/>.
+        /// </summary>
+        /// <param name="key">Input key value.</param>
+        /// <param name="lookupOptions">Whether to search in the cache and/or store.</param>
+        /// <param name="pointMapping">Mapping that contains the key value.</param>
+        /// <returns><c>true</c> if mapping is found, <c>false</c> otherwise.</returns>
+        public bool TryGetMappingForKey(TKey key, LookupOptions lookupOptions, out PointMapping<TKey> pointMapping)
         {
             using (ActivityIdScope activityIdScope = new ActivityIdScope(Guid.NewGuid()))
             {
@@ -327,7 +462,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
 
                 Stopwatch stopwatch = Stopwatch.StartNew();
 
-                bool result = _lsm.TryLookup(key, false, out pointMapping);
+                bool result = _lsm.TryLookup(key, lookupOptions, out pointMapping);
 
                 stopwatch.Stop();
 
@@ -479,6 +614,17 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         /// <returns>An offline mapping.</returns>
         public PointMapping<TKey> MarkMappingOffline(PointMapping<TKey> mapping)
         {
+            return MarkMappingOffline(mapping, MappingOptions.Validate);
+        }
+
+        /// <summary>
+        /// Marks the specified mapping offline.
+        /// </summary>
+        /// <param name="mapping">Input point mapping.</param>
+        /// <param name="options">Options for validation operations to perform on opened connection to affected shard.</param>
+        /// <returns>An offline mapping.</returns>
+        public PointMapping<TKey> MarkMappingOffline(PointMapping<TKey> mapping, MappingOptions options)
+        {
             ExceptionUtils.DisallowNullArgument(mapping, "mapping");
 
             using (ActivityIdScope activityIdScope = new ActivityIdScope(Guid.NewGuid()))
@@ -489,7 +635,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
 
                 Stopwatch stopwatch = Stopwatch.StartNew();
 
-                PointMapping<TKey> result = _lsm.MarkMappingOffline(mapping);
+                PointMapping<TKey> result = _lsm.MarkMappingOffline(mapping, options : options);
 
                 stopwatch.Stop();
 

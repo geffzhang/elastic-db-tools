@@ -28,6 +28,27 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
     }
 
     /// <summary>
+    /// Allows users to specify operations such as validation, to perform 
+    /// on the affected shard in the mapping.
+    /// </summary>
+    [Flags]
+    public enum MappingOptions
+    {
+        /// <summary>
+        /// No operation will be performed on the affected shard.
+        /// </summary>
+        None = 0,
+
+        /// <summary>
+        /// Validation operations will be performed on affected shard.
+        /// When a mapping is taken offline, connections to the affected
+        /// shard will be killed in order to prevent inconsistent or 
+        /// incomplete results for queries directed against mappings 
+        /// being changed.
+        /// </summary>
+        Validate
+    }
+    /// <summary>
     /// Container for a collection of keys to shards mappings.
     /// </summary>
     internal interface IShardMapper
@@ -55,6 +76,19 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         SqlConnection OpenConnectionForKey(TKey key, string connectionString, ConnectionOptions options = ConnectionOptions.Validate);
 
         /// <summary>
+        /// Given a key value, obtains a SqlConnection to the shard in the mapping
+        /// that contains the key value.
+        /// </summary>
+        /// <param name="key">Input key value.</param>
+        /// <param name="connectionInfo">
+        /// Connection info with credential information, the DataSource and Database are 
+        /// obtained from the results of the lookup operation for key.
+        /// </param>
+        /// <param name="options">Options for validation operations to perform on opened connection.</param>
+        /// <returns>An opened SqlConnection.</returns>
+        SqlConnection OpenConnectionForKey(TKey key, SqlConnectionInfo connectionInfo, ConnectionOptions options = ConnectionOptions.Validate);
+
+        /// <summary>
         /// Given a key value, asynchronously obtains a SqlConnection to the shard in the mapping
         /// that contains the key value.
         /// </summary>
@@ -66,6 +100,19 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         /// <param name="options">Options for validation operations to perform on opened connection.</param>
         /// <returns>An opened SqlConnection.</returns>
         Task<SqlConnection> OpenConnectionForKeyAsync(TKey key, string connectionString, ConnectionOptions options = ConnectionOptions.Validate);
+
+        /// <summary>
+        /// Given a key value, asynchronously obtains a SqlConnection to the shard in the mapping
+        /// that contains the key value.
+        /// </summary>
+        /// <param name="key">Input key value.</param>
+        /// <param name="connectionInfo">
+        /// Connection info with credential information, the DataSource and Database are 
+        /// obtained from the results of the lookup operation for key.
+        /// </param>
+        /// <param name="options">Options for validation operations to perform on opened connection.</param>
+        /// <returns>An opened SqlConnection.</returns>
+        Task<SqlConnection> OpenConnectionForKeyAsync(TKey key, SqlConnectionInfo connectionInfo, ConnectionOptions options = ConnectionOptions.Validate);
     }
 
     /// <summary>
@@ -93,17 +140,17 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         /// Looks up the key value and returns the corresponding mapping.
         /// </summary>
         /// <param name="key">Input key value.</param>
-        /// <param name="useCache">Whether to use cache for lookups.</param>
+        /// <param name="lookupOptions">Whether to search in the cache and/or store.</param>
         /// <returns>Mapping that contains the key value.</returns>
-        TMapping Lookup(TKey key, bool useCache);
+        TMapping Lookup(TKey key, LookupOptions lookupOptions);
 
         /// <summary>
         /// Tries to looks up the key value and returns the corresponding mapping.
         /// </summary>
         /// <param name="key">Input key value.</param>
-        /// <param name="useCache">Whether to use cache for lookups.</param>
+        /// <param name="lookupOptions">Whether to search in the cache and/or store.</param>
         /// <param name="mapping">Mapping that contains the key value.</param>
         /// <returns><c>true</c> if mapping is found, <c>false</c> otherwise.</returns>
-        bool TryLookup(TKey key, bool useCache, out TMapping mapping);
+        bool TryLookup(TKey key, LookupOptions lookupOptions, out TMapping mapping);
     }
 }

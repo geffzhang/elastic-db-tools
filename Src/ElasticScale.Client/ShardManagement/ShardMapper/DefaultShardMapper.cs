@@ -29,7 +29,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         /// </summary>
         /// <param name="key">Input shard.</param>
         /// <param name="connectionString">
-        /// Connection string with credential information, the DataSource and Database are 
+        /// Connection string with credential information, the DataSource and Database are
         /// obtained from the results of the lookup operation.
         /// </param>
         /// <param name="options">Options for validation operations to perform on opened connection.</param>
@@ -39,10 +39,31 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
             string connectionString,
             ConnectionOptions options = ConnectionOptions.Validate)
         {
-            Debug.Assert(key != null);
-            Debug.Assert(connectionString != null);
+            return this.OpenConnectionForKey(key, new SqlConnectionInfo(connectionString, null), options);
+        }
 
-            return this.ShardMap.OpenConnection(this.Lookup(key, true), connectionString, options);
+        /// <summary>
+        /// Given a shard, obtains a SqlConnection to the shard. The shard must exist in the mapper.
+        /// </summary>
+        /// <param name="key">Input shard.</param>
+        /// <param name="connectionInfo">
+        /// Connection info with credential information, the DataSource and Database are
+        /// obtained from the results of the lookup operation.
+        /// </param>
+        /// <param name="options">Options for validation operations to perform on opened connection.</param>
+        /// <returns>An opened SqlConnection.</returns>
+        public SqlConnection OpenConnectionForKey(
+            Shard key,
+            SqlConnectionInfo connectionInfo,
+            ConnectionOptions options = ConnectionOptions.Validate)
+        {
+            Debug.Assert(key != null);
+            Debug.Assert(connectionInfo != null);
+
+            return this.ShardMap.OpenConnection(
+                this.Lookup(key, LookupOptions.LookupInCache | LookupOptions.LookupInStore),
+                connectionInfo,
+                options);
         }
 
         /// <summary>
@@ -50,7 +71,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         /// </summary>
         /// <param name="key">Input shard.</param>
         /// <param name="connectionString">
-        /// Connection string with credential information, the DataSource and Database are 
+        /// Connection string with credential information, the DataSource and Database are
         /// obtained from the results of the lookup operation.
         /// </param>
         /// <param name="options">Options for validation operations to perform on opened connection.</param>
@@ -60,10 +81,31 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
             string connectionString,
             ConnectionOptions options = ConnectionOptions.Validate)
         {
-            Debug.Assert(key != null);
-            Debug.Assert(connectionString != null);
+            return await this.OpenConnectionForKeyAsync(key, new SqlConnectionInfo(connectionString, null), options);
+        }
 
-            return await this.ShardMap.OpenConnectionAsync(this.Lookup(key, true), connectionString, options).ConfigureAwait(false);
+        /// <summary>
+        /// Given a shard, asynchronously obtains a SqlConnection to the shard. The shard must exist in the mapper.
+        /// </summary>
+        /// <param name="key">Input shard.</param>
+        /// <param name="connectionInfo">
+        /// Connection string with credential information, the DataSource and Database are
+        /// obtained from the results of the lookup operation.
+        /// </param>
+        /// <param name="options">Options for validation operations to perform on opened connection.</param>
+        /// <returns>An opened SqlConnection.</returns>
+        public async Task<SqlConnection> OpenConnectionForKeyAsync(
+            Shard key,
+            SqlConnectionInfo connectionInfo,
+            ConnectionOptions options = ConnectionOptions.Validate)
+        {
+            Debug.Assert(key != null);
+            Debug.Assert(connectionInfo != null);
+
+            return await this.ShardMap.OpenConnectionAsync(
+                this.Lookup(key, LookupOptions.LookupInCache | LookupOptions.LookupInStore),
+                connectionInfo,
+                options).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -124,9 +166,9 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         /// Looks up the given shard in the mapper.
         /// </summary>
         /// <param name="shard">Input shard.</param>
-        /// <param name="useCache">Whether to use cache for lookups.</param>
+        /// <param name="lookupOptions">Whether to search in the cache and/or store.</param>
         /// <returns>Returns the shard after verifying that it is present in mapper.</returns>
-        public Shard Lookup(Shard shard, bool useCache)
+        public Shard Lookup(Shard shard, LookupOptions lookupOptions)
         {
             Debug.Assert(shard != null);
 
@@ -137,10 +179,10 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement
         /// Tries to looks up the key value and returns the corresponding mapping.
         /// </summary>
         /// <param name="key">Input shard.</param>
-        /// <param name="useCache">Whether to use cache for lookups.</param>
+        /// <param name="lookupOptions">Whether to search in the cache and/or store.</param>
         /// <param name="shard">Shard that contains the key value.</param>
         /// <returns><c>true</c> if shard is found, <c>false</c> otherwise.</returns>
-        public bool TryLookup(Shard key, bool useCache, out Shard shard)
+        public bool TryLookup(Shard key, LookupOptions lookupOptions, out Shard shard)
         {
             Debug.Assert(key != null);
 

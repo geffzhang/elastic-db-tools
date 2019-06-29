@@ -1,7 +1,7 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
-using Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.Fakes;
+using Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests.Stubs;
 using Microsoft.Azure.SqlDatabase.ElasticScale.Test.Common;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
@@ -344,6 +344,37 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             }
         }
 
+        [TestMethod()]
+        [TestCategory("ExcludeFromGatedCheckin")]
+        public void GetPointMappingForKey_Ex()
+        {
+            GetPointMappingForKey(new ExceptionBasedTestShardMapVerifier());
+        }
+
+        [TestMethod()]
+        [TestCategory("ExcludeFromGatedCheckin")]
+        public void GetPointMappingForKey_Try()
+        {
+            GetPointMappingForKey(new TryBasedTestShardMapVerifier());
+        }
+
+        private void GetPointMappingForKey(TestShardMapVerifier verifier)
+        {
+            // Use 2 different SMM's so that we can verify when cache is used
+            ShardMapManager smm = ShardMapManagerFactory.GetSqlShardMapManager(
+                Globals.ShardMapManagerConnectionString,
+                ShardMapManagerLoadPolicy.Lazy);
+
+            ShardMapManager smm2 = ShardMapManagerFactory.GetSqlShardMapManager(
+                Globals.ShardMapManagerConnectionString,
+                ShardMapManagerLoadPolicy.Lazy);
+
+            TestShardMap<int> lsm = new TestShardMap<int>(smm.GetListShardMap<int>(ShardMapperTests.s_listShardMapName));
+            TestShardMap<int> lsm2 = new TestShardMap<int>(smm2.GetListShardMap<int>(ShardMapperTests.s_listShardMapName));
+
+            GetMappingForKey(lsm, lsm2, verifier);
+        }
+
         /// <summary>
         /// All combinations of getting point mappings from a list shard map
         /// </summary>
@@ -510,7 +541,8 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
 
             lsm.DeleteMapping(mappingToDelete);
 
-            // Verify that the mapping is removed from cache.
+            // Try to get from store. Because the mapping is missing from the store, we will try to
+            // invalidate the cache, but since it is also missing from cache there will be an cache miss.
             bool lookupFailed = false;
             try
             {
@@ -524,7 +556,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             }
 
             Assert.IsTrue(lookupFailed);
-            Assert.AreEqual(0, countingCache.LookupMappingMissCount);
+            Assert.AreEqual(1, countingCache.LookupMappingMissCount);
         }
 
         /// <summary>
@@ -775,6 +807,37 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
         }
 
         /// <summary>
+        /// Take a mapping offline, verify that the existing connection is not killed using mapping options.
+        /// </summary>
+        [TestMethod()]
+        [TestCategory("ExcludeFromGatedCheckin")]
+        public void DoNotKillConnectionOnOfflinePointMapping()
+        {
+            ShardMapManager smm = new ShardMapManager(
+                new SqlShardMapManagerCredentials(Globals.ShardMapManagerConnectionString),
+                new SqlStoreConnectionFactory(),
+                new StoreOperationFactory(),
+                new CacheStore(),
+                ShardMapManagerLoadPolicy.Lazy,
+                new RetryPolicy(1, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero),
+                RetryBehavior.DefaultRetryBehavior);
+
+            ListShardMap<int> lsm = smm.GetListShardMap<int>(ShardMapperTests.s_listShardMapName);
+
+            Assert.IsNotNull(lsm);
+
+            ShardLocation sl = new ShardLocation(Globals.ShardMapManagerTestsDatasourceName, ShardMapperTests.s_shardedDBs[0]);
+
+            Shard s = lsm.CreateShard(sl);
+
+            Assert.IsNotNull(s);
+
+            PointMapping<int> p1 = lsm.CreatePointMapping(1, s);
+
+            ValidateConnectionPreservedOnOfflineMapping(lsm, p1);
+        }
+
+        /// <summary>
         /// Update location of existing point mapping in list shard map
         /// </summary>
         [TestMethod()]
@@ -946,7 +1009,6 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             Assert.IsTrue(failed);
         }
 
-
         #endregion ListMapperTests
 
         #region RangeMapperTests
@@ -989,7 +1051,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             for (int i = 0; i < keysToTest.Count - 1; i++)
             {
                 // https://github.com/Azure/elastic-db-tools/issues/117
-                // Bug? DateTimeOffsets with the same universal time but different offset are equal as ShardKeys. 
+                // Bug? DateTimeOffsets with the same universal time but different offset are equal as ShardKeys.
                 // According to SQL (and our normalization format), they should be unequal, although according to .NET they should be equal.
                 // We need to skip empty ranges because if we use them in this test then we end up with duplicate mappings
                 if (typeof(T) == typeof(DateTimeOffset) && (DateTimeOffset)(object)keysToTest[i] == (DateTimeOffset)(object)keysToTest[i + 1])
@@ -1282,6 +1344,8 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
 
             rsm.DeleteMapping(mappingToDelete, mappingLockToken);
 
+            // Try to get from store. Because the mapping is missing from the store, we will try to
+            // invalidate the cache, but since it is also missing from cache there will be an cache miss.
             exception = AssertExtensions.AssertThrows<ShardManagementException>
                 (() => rsm.GetMappingForKey(1));
 
@@ -1289,7 +1353,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
                 exception.ErrorCode == ShardManagementErrorCode.MappingNotFoundForKey &&
                 exception.ErrorCategory == ShardManagementErrorCategory.RangeShardMap);
 
-            Assert.AreEqual(0, countingCache.LookupMappingMissCount);
+            Assert.AreEqual(1, countingCache.LookupMappingMissCount);
         }
 
         /// <summary>
@@ -1544,6 +1608,36 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             }
         }
 
+        /// <summary>
+        /// Take a mapping offline, verify that the existing connection is not killed using mapping options.
+        /// </summary>
+        [TestMethod()]
+        [TestCategory("ExcludeFromGatedCheckin")]
+        public void DoNotKillConnectionOnOfflineRangeMapping()
+        {
+            ShardMapManager smm = new ShardMapManager(
+                new SqlShardMapManagerCredentials(Globals.ShardMapManagerConnectionString),
+                new SqlStoreConnectionFactory(),
+                new StoreOperationFactory(),
+                new CacheStore(),
+                ShardMapManagerLoadPolicy.Lazy,
+                new RetryPolicy(1, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero),
+                RetryBehavior.DefaultRetryBehavior);
+
+            RangeShardMap<int> rsm = smm.GetRangeShardMap<int>(ShardMapperTests.s_rangeShardMapName);
+
+            Assert.IsNotNull(rsm);
+
+            ShardLocation sl = new ShardLocation(Globals.ShardMapManagerTestsDatasourceName, ShardMapperTests.s_shardedDBs[0]);
+
+            Shard s = rsm.CreateShard(sl);
+
+            Assert.IsNotNull(s);
+
+            RangeMapping<int> r1 = rsm.CreateRangeMapping(new Range<int>(1, 20), s);
+
+            ValidateConnectionPreservedOnOfflineMapping(rsm, r1);
+        }
 
         /// <summary>
         /// Update range mapping in range shard map to change location.
@@ -1726,6 +1820,37 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             Assert.IsTrue(failed);
         }
 
+        [TestMethod()]
+        [TestCategory("ExcludeFromGatedCheckin")]
+        public void GetRangeMappingForKey_Ex()
+        {
+            GetRangeMappingForKey(new ExceptionBasedTestShardMapVerifier());
+        }
+
+        [TestMethod()]
+        [TestCategory("ExcludeFromGatedCheckin")]
+        public void GetRangeMappingForKey_Try()
+        {
+            GetRangeMappingForKey(new TryBasedTestShardMapVerifier());
+        }
+
+        private void GetRangeMappingForKey(TestShardMapVerifier verifier)
+        {
+            // Use 2 different SMM's so that we can verify when cache is used
+            ShardMapManager smm = ShardMapManagerFactory.GetSqlShardMapManager(
+                Globals.ShardMapManagerConnectionString,
+                ShardMapManagerLoadPolicy.Lazy);
+
+            ShardMapManager smm2 = ShardMapManagerFactory.GetSqlShardMapManager(
+                Globals.ShardMapManagerConnectionString,
+                ShardMapManagerLoadPolicy.Lazy);
+
+            TestShardMap<int> rsm = new TestShardMap<int>(smm.GetRangeShardMap<int>(ShardMapperTests.s_rangeShardMapName));
+            TestShardMap<int> rsm2 = new TestShardMap<int>(smm2.GetRangeShardMap<int>(ShardMapperTests.s_rangeShardMapName));
+
+            GetMappingForKey(rsm, rsm2, verifier);
+        }
+
         /// <summary>
         /// All combinations of getting range mappings from a range shard map
         /// </summary>
@@ -1878,7 +2003,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             ArgumentOutOfRangeException exception = AssertExtensions.AssertThrows<ArgumentOutOfRangeException>
                 (() => rsm.SplitMapping(r1, 1, mappingLockToken));
 
-            // Unlock mapping 
+            // Unlock mapping
             rsm.UnlockMapping(r1, mappingLockToken);
         }
 
@@ -2210,6 +2335,61 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
         }
         #endregion RangeMapperTests
 
+        private static void GetMappingForKey(TestShardMap<int> lsm, TestShardMap<int> lsm2, TestShardMapVerifier verifier)
+        {
+            Assert.IsNotNull(lsm);
+            Assert.IsNotNull(lsm2);
+
+            Shard s1 = lsm.ShardMap.CreateShard(new ShardLocation(Globals.ShardMapManagerTestsDatasourceName,
+                ShardMapperTests.s_shardedDBs[0]));
+            Assert.IsNotNull(s1);
+
+            Shard s2 = lsm.ShardMap.CreateShard(new ShardLocation(Globals.ShardMapManagerTestsDatasourceName,
+                ShardMapperTests.s_shardedDBs[1]));
+            Assert.IsNotNull(s2);
+
+            // Create point mapping via lsm
+            IMappingInfoProvider p1 = lsm.CreateMapping(1, 2, s1);
+            Assert.IsNotNull(p1);
+
+            // Get mapping from cache - it should be in lsm cache, but not in lsm2 cache
+            IMappingInfoProvider cache1 = verifier.GetMappingForKey(lsm, 1, LookupOptions.LookupInCache);
+            Assert.AreEqual(p1, cache1);
+
+            verifier.GetMappingForKey_NotExists(lsm2, 1, LookupOptions.LookupInCache);
+
+            // Get mapping from cache, then storage - it should be in lsm cache, and be loaded into lsm2 cache from storage
+            IMappingInfoProvider cacheThenStorage1 = verifier.GetMappingForKey(lsm, 1);
+            Assert.AreEqual(p1, cacheThenStorage1);
+
+            IMappingInfoProvider cacheThenStorage2 = verifier.GetMappingForKey(lsm2, 1);
+            Assert.AreEqual(p1, cacheThenStorage2);
+
+            // Verify that it is now loaded in lsm2 cache
+            IMappingInfoProvider cache2 = verifier.GetMappingForKey(lsm2, 1, LookupOptions.LookupInCache);
+            Assert.IsNotNull(cache2);
+            Assert.AreEqual(p1, cache2);
+
+            // Delete mapping via lsm
+            IMappingInfoProvider p1Offline = lsm.MarkMappingOffline(p1);
+            lsm.DeleteMapping(p1Offline);
+
+            // Verify mapping is not in lsm cache, but it is still in lsm2 cache
+            // Use `LookupOptions.Cache | LookupOptions.Store` to verify that if cache is found, then storage is not checked
+            verifier.GetMappingForKey_NotExists(lsm, 1, LookupOptions.LookupInCache);
+
+            IMappingInfoProvider staleCache2 = verifier.GetMappingForKey(lsm2, 1, LookupOptions.LookupInCache | LookupOptions.LookupInStore);
+            Assert.IsNotNull(staleCache2);
+            Assert.AreEqual(p1, staleCache2);
+
+            // Verify mapping cannot be found via either lsm store (by default cache is never used, only store is used)
+            verifier.GetMappingForKey_NotExists(lsm, 1);
+            verifier.GetMappingForKey_NotExists(lsm2, 1);
+
+            // Lookup again from cache - the mapping should have been removed from the cache
+            verifier.GetMappingForKey_NotExists(lsm2, 1, LookupOptions.LookupInCache);
+        }
+
         /// <summary>
         /// Mark a point mapping offline or online.
         /// </summary>
@@ -2253,6 +2433,59 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             RangeMapping<int> r1 = rsm.CreateRangeMapping(new Range<int>(1, 5), s);
 
             RangeMapping<int> rNew = rsm.MarkMappingOffline(r1);
+
+            Assert.IsNotNull(rNew);
+            Assert.AreEqual(MappingStatus.Offline, rNew.Status, "The range mapping was not successfully marked offline.");
+
+            rNew = rsm.MarkMappingOnline(rNew);
+
+            Assert.IsNotNull(rNew);
+            Assert.AreEqual(MappingStatus.Online, rNew.Status, "The range mapping was not successfully marked online.");
+        }
+
+        /// <summary>
+        /// Mark a point mapping offline or online using MappingOptions.None
+        /// </summary>
+        [TestMethod()]
+        [TestCategory("ExcludeFromGatedCheckin")]
+        public void MarkMappingOfflineOnlineWithMappingOptions()
+        {
+            ShardMapManager smm = ShardMapManagerFactory.GetSqlShardMapManager(
+                Globals.ShardMapManagerConnectionString,
+                ShardMapManagerLoadPolicy.Lazy);
+
+            ListShardMap<int> lsm = smm.GetListShardMap<int>(ShardMapperTests.s_listShardMapName);
+
+            Assert.IsNotNull(lsm);
+
+            ShardLocation sl = new ShardLocation(Globals.ShardMapManagerTestsDatasourceName, ShardMapperTests.s_shardedDBs[0]);
+
+            Shard s = lsm.CreateShard(sl);
+
+            Assert.IsNotNull(s);
+
+            PointMapping<int> p1 = lsm.CreatePointMapping(1, s);
+
+            PointMapping<int> pNew = lsm.MarkMappingOffline(p1, MappingOptions.None);
+
+            Assert.IsNotNull(pNew);
+            Assert.AreEqual(MappingStatus.Offline, pNew.Status, "The point mapping was not successfully marked offline.");
+
+            pNew = lsm.MarkMappingOnline(pNew);
+
+            Assert.IsNotNull(pNew);
+            Assert.AreEqual(MappingStatus.Online, pNew.Status, "The point mapping was not successfully marked online.");
+
+            RangeShardMap<int> rsm = smm.GetRangeShardMap<int>(ShardMapperTests.s_rangeShardMapName);
+
+            Assert.IsNotNull(rsm);
+
+            s = rsm.CreateShard(sl);
+            Assert.IsNotNull(s);
+
+            RangeMapping<int> r1 = rsm.CreateRangeMapping(new Range<int>(1, 5), s);
+
+            RangeMapping<int> rNew = rsm.MarkMappingOffline(r1, MappingLockToken.NoLock, MappingOptions.None);
 
             Assert.IsNotNull(rNew);
             Assert.AreEqual(MappingStatus.Offline, rNew.Status, "The range mapping was not successfully marked offline.");
@@ -2412,37 +2645,19 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             // Mapping is there, now let's try to abort the OpenConnectionForKey
             shouldThrow = true;
 
-            bool failed = false;
-
             for (int i = 1; i <= 10; i++)
             {
-                failed = false;
-
-                try
+                Assert.ThrowsException<SqlException>(() =>
                 {
                     if (openConnectionAsync)
                     {
-                        lsm.OpenConnectionForKeyAsync(2, Globals.ShardUserConnectionString).Wait();
+                        lsm.OpenConnectionForKeyAsync(2, Globals.ShardUserConnectionString).GetAwaiter().GetResult();
                     }
                     else
                     {
                         lsm.OpenConnectionForKey(2, Globals.ShardUserConnectionString);
                     }
-                }
-                catch (Exception ex)
-                {
-                    if (ex is AggregateException)
-                    {
-                        ex = ex.InnerException as SqlException;
-                    }
-
-                    if (ex is SqlException)
-                    {
-                        failed = true;
-                    }
-                }
-
-                Assert.IsTrue(failed);
+                });
             }
 
             Assert.AreEqual(1, callCount);
@@ -2455,97 +2670,49 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             sics.TimeToLiveMillisecondsGet = () => 0;
             sics.HasTimeToLiveExpired = () => true;
 
-            failed = false;
-
-            try
+            Assert.ThrowsException<SqlException>(() =>
             {
                 if (openConnectionAsync)
                 {
-                    lsm.OpenConnectionForKeyAsync(2, Globals.ShardUserConnectionString).Wait();
+                    lsm.OpenConnectionForKeyAsync(2, Globals.ShardUserConnectionString).GetAwaiter().GetResult();
                 }
                 else
                 {
                     lsm.OpenConnectionForKey(2, Globals.ShardUserConnectionString);
                 }
-            }
-            catch (Exception ex)
-            {
-                if (ex is AggregateException)
-                {
-                    ex = ex.InnerException as SqlException;
-                }
+            });
 
-                if (ex is SqlException)
-                {
-                    failed = true;
-                }
-            }
-
-            Assert.IsTrue(failed);
             Assert.AreEqual(2, callCount);
 
             sics.TimeToLiveMillisecondsGet = () => currentMapping.TimeToLiveMilliseconds;
             sics.HasTimeToLiveExpired = () => currentMapping.HasTimeToLiveExpired();
 
-            failed = false;
-
-            try
+            Assert.ThrowsException<SqlException>(() =>
             {
                 if (openConnectionAsync)
                 {
-                    lsm.OpenConnectionForKeyAsync(2, Globals.ShardUserConnectionString).Wait();
+                    lsm.OpenConnectionForKeyAsync(2, Globals.ShardUserConnectionString).GetAwaiter().GetResult();
                 }
                 else
                 {
                     lsm.OpenConnectionForKey(2, Globals.ShardUserConnectionString);
                 }
-            }
-            catch (Exception ex)
-            {
-                if (ex is AggregateException)
-                {
-                    ex = ex.InnerException as SqlException;
-                }
-
-                if (ex is SqlException)
-                {
-                    failed = true;
-                }
-            }
-
-            Assert.IsTrue(failed);
+            });
 
             Assert.IsTrue(((ICacheStoreMapping)sics).TimeToLiveMilliseconds > currentTtl);
 
             shouldThrow = false;
 
-            failed = false;
-
-            try
             {
                 if (openConnectionAsync)
                 {
-                    lsm.OpenConnectionForKeyAsync(2, Globals.ShardUserConnectionString).Wait();
+                    lsm.OpenConnectionForKeyAsync(2, Globals.ShardUserConnectionString).GetAwaiter().GetResult();
                 }
                 else
                 {
                     lsm.OpenConnectionForKey(2, Globals.ShardUserConnectionString);
                 }
             }
-            catch (Exception ex)
-            {
-                if (ex is AggregateException)
-                {
-                    ex = ex.InnerException as SqlException;
-                }
-
-                if (ex is SqlException)
-                {
-                    failed = true;
-                }
-            }
-
-            Assert.IsFalse(failed);
 
             Assert.AreEqual(0, ((ICacheStoreMapping)sics).TimeToLiveMilliseconds);
         }
@@ -2697,37 +2864,19 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             // Mapping is there, now let's try to abort the OpenConnectionForKey
             shouldThrow = true;
 
-            bool failed = false;
-
             for (int i = 1; i <= 10; i++)
             {
-                failed = false;
-
-                try
+                Assert.ThrowsException<SqlException>(() =>
                 {
                     if (openConnectionAsync)
                     {
-                        rsm.OpenConnectionForKeyAsync(10, Globals.ShardUserConnectionString).Wait();
+                        rsm.OpenConnectionForKeyAsync(10, Globals.ShardUserConnectionString).GetAwaiter().GetResult();
                     }
                     else
                     {
                         rsm.OpenConnectionForKey(10, Globals.ShardUserConnectionString);
                     }
-                }
-                catch (Exception ex)
-                {
-                    if (ex is AggregateException)
-                    {
-                        ex = ex.InnerException as SqlException;
-                    }
-
-                    if (ex is SqlException)
-                    {
-                        failed = true;
-                    }
-                }
-
-                Assert.IsTrue(failed);
+                });
             }
 
             Assert.AreEqual(1, callCount);
@@ -2740,97 +2889,49 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             sics.TimeToLiveMillisecondsGet = () => 0;
             sics.HasTimeToLiveExpired = () => true;
 
-            failed = false;
-
-            try
+            Assert.ThrowsException<SqlException>(() =>
             {
                 if (openConnectionAsync)
                 {
-                    rsm.OpenConnectionForKeyAsync(12, Globals.ShardUserConnectionString).Wait();
+                    rsm.OpenConnectionForKeyAsync(12, Globals.ShardUserConnectionString).GetAwaiter().GetResult();
                 }
                 else
                 {
                     rsm.OpenConnectionForKey(12, Globals.ShardUserConnectionString);
                 }
-            }
-            catch (Exception ex)
-            {
-                if (ex is AggregateException)
-                {
-                    ex = ex.InnerException as SqlException;
-                }
+            });
 
-                if (ex is SqlException)
-                {
-                    failed = true;
-                }
-            }
-
-            Assert.IsTrue(failed);
             Assert.AreEqual(2, callCount);
 
             sics.TimeToLiveMillisecondsGet = () => currentMapping.TimeToLiveMilliseconds;
             sics.HasTimeToLiveExpired = () => currentMapping.HasTimeToLiveExpired();
 
-            failed = false;
-
-            try
+            Assert.ThrowsException<SqlException>(() =>
             {
                 if (openConnectionAsync)
                 {
-                    rsm.OpenConnectionForKeyAsync(15, Globals.ShardUserConnectionString).Wait();
+                    rsm.OpenConnectionForKeyAsync(15, Globals.ShardUserConnectionString).GetAwaiter().GetResult();
                 }
                 else
                 {
                     rsm.OpenConnectionForKey(15, Globals.ShardUserConnectionString);
                 }
-            }
-            catch (Exception ex)
-            {
-                if (ex is AggregateException)
-                {
-                    ex = ex.InnerException as SqlException;
-                }
-
-                if (ex is SqlException)
-                {
-                    failed = true;
-                }
-            }
-
-            Assert.IsTrue(failed);
+            });
 
             Assert.IsTrue(((ICacheStoreMapping)sics).TimeToLiveMilliseconds > currentTtl);
 
             shouldThrow = false;
 
-            failed = false;
-
-            try
             {
                 if (openConnectionAsync)
                 {
-                    rsm.OpenConnectionForKeyAsync(7, Globals.ShardUserConnectionString).Wait();
+                    rsm.OpenConnectionForKeyAsync(7, Globals.ShardUserConnectionString).GetAwaiter().GetResult();
                 }
                 else
                 {
                     rsm.OpenConnectionForKey(7, Globals.ShardUserConnectionString);
                 }
             }
-            catch (Exception ex)
-            {
-                if (ex is AggregateException)
-                {
-                    ex = ex.InnerException as SqlException;
-                }
-
-                if (ex is SqlException)
-                {
-                    failed = true;
-                }
-            }
-
-            Assert.IsFalse(failed);
 
             Assert.AreEqual(0, ((ICacheStoreMapping)sics).TimeToLiveMilliseconds);
         }
@@ -3086,10 +3187,10 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             IStoreOperationFactory sof = new StubStoreOperationFactory()
             {
                 CallBase = true,
-                CreateUpdateMappingOperationShardMapManagerStoreOperationCodeIStoreShardMapIStoreMappingIStoreMappingStringGuid =
-                (_smm, _opcode, _ssm, _sms, _smt, _p, _loid) =>
+                CreateUpdateMappingOperationShardMapManagerStoreOperationCodeIStoreShardMapIStoreMappingIStoreMappingStringGuidBool =
+                (_smm, _opcode, _ssm, _sms, _smt, _p, _loid, _kc) =>
                 {
-                    StubUpdateMappingOperation op = new StubUpdateMappingOperation(_smm, _opcode, _ssm, _sms, _smt, _p, _loid);
+                    StubUpdateMappingOperation op = new StubUpdateMappingOperation(_smm, _opcode, _ssm, _sms, _smt, _p, _loid, _kc);
                     op.CallBase = true;
                     op.DoGlobalPostLocalExecuteIStoreTransactionScope = (ts) =>
                     {
@@ -3158,10 +3259,10 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             IStoreOperationFactory sof = new StubStoreOperationFactory()
             {
                 CallBase = true,
-                CreateUpdateMappingOperationShardMapManagerStoreOperationCodeIStoreShardMapIStoreMappingIStoreMappingStringGuid =
-                (_smm, _opcode, _ssm, _sms, _smt, _p, _loid) =>
+                CreateUpdateMappingOperationShardMapManagerStoreOperationCodeIStoreShardMapIStoreMappingIStoreMappingStringGuidBool =
+                (_smm, _opcode, _ssm, _sms, _smt, _p, _loid, _kc) =>
                 {
-                    StubUpdateMappingOperation op = new StubUpdateMappingOperation(_smm, _opcode, _ssm, _sms, _smt, _p, _loid);
+                    StubUpdateMappingOperation op = new StubUpdateMappingOperation(_smm, _opcode, _ssm, _sms, _smt, _p, _loid, _kc);
                     op.CallBase = true;
                     if (shouldThrow)
                     {
@@ -3394,10 +3495,10 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             IStoreOperationFactory sof = new StubStoreOperationFactory()
             {
                 CallBase = true,
-                CreateUpdateMappingOperationShardMapManagerStoreOperationCodeIStoreShardMapIStoreMappingIStoreMappingStringGuid =
-                (_smm, _opcode, _ssm, _sms, _smt, _p, _loid) =>
+                CreateUpdateMappingOperationShardMapManagerStoreOperationCodeIStoreShardMapIStoreMappingIStoreMappingStringGuidBool =
+                (_smm, _opcode, _ssm, _sms, _smt, _p, _loid, _kc) =>
                 {
-                    StubUpdateMappingOperation op = new StubUpdateMappingOperation(_smm, _opcode, _ssm, _sms, _smt, _p, _loid);
+                    StubUpdateMappingOperation op = new StubUpdateMappingOperation(_smm, _opcode, _ssm, _sms, _smt, _p, _loid, _kc);
                     op.CallBase = true;
                     op.DoGlobalPostLocalExecuteIStoreTransactionScope = (ts) =>
                     {
@@ -3465,10 +3566,10 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             IStoreOperationFactory sof = new StubStoreOperationFactory()
             {
                 CallBase = true,
-                CreateUpdateMappingOperationShardMapManagerStoreOperationCodeIStoreShardMapIStoreMappingIStoreMappingStringGuid =
-                (_smm, _opcode, _ssm, _sms, _smt, _p, _loid) =>
+                CreateUpdateMappingOperationShardMapManagerStoreOperationCodeIStoreShardMapIStoreMappingIStoreMappingStringGuidBool =
+                (_smm, _opcode, _ssm, _sms, _smt, _p, _loid, _kc) =>
                 {
-                    StubUpdateMappingOperation op = new StubUpdateMappingOperation(_smm, _opcode, _ssm, _sms, _smt, _p, _loid);
+                    StubUpdateMappingOperation op = new StubUpdateMappingOperation(_smm, _opcode, _ssm, _sms, _smt, _p, _loid, _kc);
                     op.CallBase = true;
                     if (shouldThrow)
                     {
@@ -3828,10 +3929,10 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             IStoreOperationFactory sof = new StubStoreOperationFactory()
             {
                 CallBase = true,
-                CreateUpdateMappingOperationShardMapManagerStoreOperationCodeIStoreShardMapIStoreMappingIStoreMappingStringGuid =
-                (_smm, _opcode, _ssm, _sms, _smt, _p, _loid) =>
+                CreateUpdateMappingOperationShardMapManagerStoreOperationCodeIStoreShardMapIStoreMappingIStoreMappingStringGuidBool =
+                (_smm, _opcode, _ssm, _sms, _smt, _p, _loid, _kc) =>
                 {
-                    StubUpdateMappingOperation op = new StubUpdateMappingOperation(_smm, _opcode, _ssm, _sms, _smt, _p, _loid);
+                    StubUpdateMappingOperation op = new StubUpdateMappingOperation(_smm, _opcode, _ssm, _sms, _smt, _p, _loid, _kc);
                     op.CallBase = true;
                     op.DoLocalSourceExecuteIStoreTransactionScope = (ts) =>
                     {
@@ -3900,10 +4001,10 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             IStoreOperationFactory sof = new StubStoreOperationFactory()
             {
                 CallBase = true,
-                CreateUpdateMappingOperationShardMapManagerStoreOperationCodeIStoreShardMapIStoreMappingIStoreMappingStringGuid =
-                (_smm, _opcode, _ssm, _sms, _smt, _p, _loid) =>
+                CreateUpdateMappingOperationShardMapManagerStoreOperationCodeIStoreShardMapIStoreMappingIStoreMappingStringGuidBool =
+                (_smm, _opcode, _ssm, _sms, _smt, _p, _loid, _kc) =>
                 {
-                    StubUpdateMappingOperation op = new StubUpdateMappingOperation(_smm, _opcode, _ssm, _sms, _smt, _p, _loid);
+                    StubUpdateMappingOperation op = new StubUpdateMappingOperation(_smm, _opcode, _ssm, _sms, _smt, _p, _loid, _kc);
                     op.CallBase = true;
                     if (shouldThrow)
                     {
@@ -4134,10 +4235,10 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             IStoreOperationFactory sof = new StubStoreOperationFactory()
             {
                 CallBase = true,
-                CreateUpdateMappingOperationShardMapManagerStoreOperationCodeIStoreShardMapIStoreMappingIStoreMappingStringGuid =
-                (_smm, _opcode, _ssm, _sms, _smt, _p, _loid) =>
+                CreateUpdateMappingOperationShardMapManagerStoreOperationCodeIStoreShardMapIStoreMappingIStoreMappingStringGuidBool =
+                (_smm, _opcode, _ssm, _sms, _smt, _p, _loid, _kc) =>
                 {
-                    StubUpdateMappingOperation op = new StubUpdateMappingOperation(_smm, _opcode, _ssm, _sms, _smt, _p, _loid);
+                    StubUpdateMappingOperation op = new StubUpdateMappingOperation(_smm, _opcode, _ssm, _sms, _smt, _p, _loid, _kc);
                     op.CallBase = true;
                     op.DoLocalSourceExecuteIStoreTransactionScope = (ts) =>
                     {
@@ -4205,10 +4306,10 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             IStoreOperationFactory sof = new StubStoreOperationFactory()
             {
                 CallBase = true,
-                CreateUpdateMappingOperationShardMapManagerStoreOperationCodeIStoreShardMapIStoreMappingIStoreMappingStringGuid =
-                (_smm, _opcode, _ssm, _sms, _smt, _p, _loid) =>
+                CreateUpdateMappingOperationShardMapManagerStoreOperationCodeIStoreShardMapIStoreMappingIStoreMappingStringGuidBool =
+                (_smm, _opcode, _ssm, _sms, _smt, _p, _loid, _kc) =>
                 {
-                    StubUpdateMappingOperation op = new StubUpdateMappingOperation(_smm, _opcode, _ssm, _sms, _smt, _p, _loid);
+                    StubUpdateMappingOperation op = new StubUpdateMappingOperation(_smm, _opcode, _ssm, _sms, _smt, _p, _loid, _kc);
                     op.CallBase = true;
                     if (shouldThrow)
                     {
@@ -4704,10 +4805,10 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             IStoreOperationFactory sof = new StubStoreOperationFactory()
             {
                 CallBase = true,
-                CreateUpdateMappingOperationShardMapManagerStoreOperationCodeIStoreShardMapIStoreMappingIStoreMappingStringGuid =
-                (_smm, _opcode, _ssm, _sms, _smt, _p, _loid) =>
+                CreateUpdateMappingOperationShardMapManagerStoreOperationCodeIStoreShardMapIStoreMappingIStoreMappingStringGuidBool =
+                (_smm, _opcode, _ssm, _sms, _smt, _p, _loid, _kc) =>
                 {
-                    StubUpdateMappingOperation op = new StubUpdateMappingOperation(_smm, _opcode, _ssm, _sms, _smt, _p, _loid);
+                    StubUpdateMappingOperation op = new StubUpdateMappingOperation(_smm, _opcode, _ssm, _sms, _smt, _p, _loid, _kc);
                     op.CallBase = true;
                     op.DoGlobalPostLocalExecuteIStoreTransactionScope = (ts) =>
                     {
@@ -4822,10 +4923,10 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             IStoreOperationFactory sof = new StubStoreOperationFactory()
             {
                 CallBase = true,
-                CreateUpdateMappingOperationShardMapManagerStoreOperationCodeIStoreShardMapIStoreMappingIStoreMappingStringGuid =
-                (_smm, _opcode, _ssm, _sms, _smt, _p, _loid) =>
+                CreateUpdateMappingOperationShardMapManagerStoreOperationCodeIStoreShardMapIStoreMappingIStoreMappingStringGuidBool =
+                (_smm, _opcode, _ssm, _sms, _smt, _p, _loid, _kc) =>
                 {
-                    StubUpdateMappingOperation op = new StubUpdateMappingOperation(_smm, _opcode, _ssm, _sms, _smt, _p, _loid);
+                    StubUpdateMappingOperation op = new StubUpdateMappingOperation(_smm, _opcode, _ssm, _sms, _smt, _p, _loid, _kc);
                     op.CallBase = true;
                     op.DoGlobalPostLocalExecuteIStoreTransactionScope = (ts) =>
                     {
@@ -5290,7 +5391,9 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
             IStoreResults result;
             using (IStoreConnection conn = new SqlStoreConnectionFactory().GetConnection(
                 StoreConnectionKind.Global,
-                Globals.ShardMapManagerConnectionString))
+                new SqlConnectionInfo(
+                    Globals.ShardMapManagerConnectionString,
+                    null)))
             {
                 conn.Open();
 
@@ -5307,6 +5410,85 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
 
             return result.StoreOperations;
         }
+
+        /// <summary>
+        /// Take a mapping offline, verify that the existing connection is not killed using mapping options.
+        /// </summary>
+        internal void ValidateConnectionPreservedOnOfflineMapping(dynamic shardMapper, dynamic mapping)
+        {
+
+            using (SqlConnection conn = shardMapper.OpenConnectionForKeyAsync(1, Globals.ShardUserConnectionString).Result)
+            {
+                Assert.AreEqual(ConnectionState.Open, conn.State);
+
+                var mNew = shardMapper.MarkMappingOffline(mapping, MappingOptions.None);
+                Assert.IsNotNull(mNew);
+
+                bool failed = false;
+
+                try
+                {
+                    using (SqlCommand cmd = conn.CreateCommand())
+                    {
+                        cmd.CommandText = "select 1";
+                        cmd.CommandType = CommandType.Text;
+
+                        using (SqlDataReader rdr = cmd.ExecuteReader())
+                        {
+                        }
+                    }
+                }
+                catch (SqlException)
+                {
+                    failed = true;
+                }
+
+                Assert.AreEqual(false, failed);
+                Assert.AreEqual(ConnectionState.Open, conn.State);
+
+                failed = false;
+
+                // Open 2nd connection.
+                try
+                {
+                    using (SqlConnection conn2 = shardMapper.OpenConnectionForKeyAsync(1, Globals.ShardUserConnectionString).Result)
+                    {
+                    }
+                }
+                catch (AggregateException ex)
+                {
+                    var sme = ex.InnerException as ShardManagementException;
+                    if (sme != null)
+                    {
+                        failed = true;
+                        Assert.AreEqual(ShardManagementErrorCode.MappingIsOffline, sme.ErrorCode);
+                    }
+                }
+
+                Assert.AreEqual(true, failed);
+
+                // Mark the mapping online again so that it will be cleaned up
+                var mUpdated = shardMapper.MarkMappingOnline(mNew);
+                Assert.IsNotNull(mUpdated);
+
+                failed = false;
+
+                // Open 3rd connection. This should succeed.
+                try
+                {
+                    using (SqlConnection conn3 = shardMapper.OpenConnectionForKey(1, Globals.ShardUserConnectionString))
+                    {
+                    }
+                }
+                catch (ShardManagementException)
+                {
+                    failed = true;
+                }
+
+                Assert.AreEqual(false, failed);
+            }
+        }
+
 
         #endregion Helper Methods
     }
