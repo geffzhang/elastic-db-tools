@@ -3,9 +3,9 @@
 
 using System;
 using System.Collections.Generic;
-using System.Data.SqlClient;
 using System.Linq;
 using Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests.Stubs;
+using Microsoft.Data.SqlClient;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
@@ -221,12 +221,12 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.UnitTests
                 }
 
                 // Validate that we can connect to the shard using a secure Sql Auth Credential
-                using (sNew.OpenConnection(string.Empty, Globals.ShardUserCredentialForSqlAuth(sqlAuthLogin.UniquifiedUserName)))
+                using (sNew.OpenConnection("TrustServerCertificate=True;", Globals.ShardUserCredentialForSqlAuth(sqlAuthLogin.UniquifiedUserName)))
                 {
                 }
 
                 using (sNew.OpenConnection(
-                    string.Empty,
+                    "TrustServerCertificate=True;",
                     Globals.ShardUserCredentialForSqlAuth(sqlAuthLogin.UniquifiedUserName),
                     ConnectionOptions.Validate))
                 {

@@ -1,18 +1,18 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <Description>This client library allows ADO.NET developers to create applications that implement and use the pattern known as database sharding in Azure SQL Database. Sharding is a scale-out strategy that spreads data across a number of independent databases. The library includes APIs for creating and managing shard maps, routing SQL operations to the appropriate shard, and performing queries that cross many shards. To learn more about elastic database tools, check out http://azure.microsoft.com/en-us/documentation/articles/sql-database-elastic-scale-documentation-map/.</Description>
     <Copyright>© Microsoft Corporation. All rights reserved.</Copyright>
     <AssemblyTitle>Microsoft Azure SQL Database: Elastic Database Client Library</AssemblyTitle>
     <NeutralLanguage>en-US</NeutralLanguage>
-    <Version>2.2.0</Version>
+    <Version>2.4.1</Version>
     <Authors>Microsoft</Authors>
-    <TargetFrameworks>net451;netstandard2.0</TargetFrameworks>
+    <TargetFrameworks>net6.0;net8.0</TargetFrameworks>
     <PackageTags>Microsoft;Elastic;Scale;Azure;SQL;DB;Database;Shard;Sharding;Management;Query;azureofficial</PackageTags>
-    <PackageReleaseNotes>Added support for ActiveDirectoryInteractive authentication. Assemblies are now signed.</PackageReleaseNotes>
-    <PackageIconUrl>http://go.microsoft.com/fwlink/?LinkID=288890</PackageIconUrl>
+    <PackageReleaseNotes>Updated dependent nugets (due to CVEs), added support for ActiveDirectoryDefault Entra auth</PackageReleaseNotes>
+    <PackageIcon>Icon.png</PackageIcon>
     <PackageProjectUrl>https://github.com/Azure/elastic-db-tools</PackageProjectUrl>
-    <PackageLicenseUrl>https://github.com/Azure/elastic-db-tools/blob/master/LICENSE</PackageLicenseUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://github.com/Azure/elastic-db-tools</RepositoryUrl>
@@ -21,12 +21,14 @@
   </PropertyGroup>
 
   <Import Project="$([MSBuild]::GetPathOfFileAbove('build.props'))" />
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('strongname.props'))" />
 
-  <ItemGroup Condition=" '$(TargetFramework)' == 'netstandard2.0' ">
-    <PackageReference Include="System.Data.SqlClient" Version="4.5.0" />
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.1.5" />
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="Properties\Icon.png" Pack="true" PackagePath="\" />
     <Compile Update="ShardManagement\Errors.Designer.cs">
       <DesignTime>True</DesignTime>
       <AutoGen>True</AutoGen>

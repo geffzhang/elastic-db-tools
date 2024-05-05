@@ -9,9 +9,9 @@
 //
 // Notes:
 
-using Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement;
 using System;
 using System.Runtime.Serialization;
+using Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement;
 
 namespace Microsoft.Azure.SqlDatabase.ElasticScale.Query
 {
@@ -79,6 +79,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.Query
         /// <param name="context">
         /// The <see cref="StreamingContext"/> that contains contextual information about the source or destination.
         /// </param>
+        [Obsolete]
         protected MultiShardPartialReadException(SerializationInfo info, StreamingContext context)
             : base(info, context)
         {

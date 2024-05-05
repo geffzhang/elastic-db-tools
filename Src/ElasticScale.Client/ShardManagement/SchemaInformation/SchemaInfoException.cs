@@ -2,12 +2,8 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System;
-using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
 using System.Runtime.Serialization;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.Schema
 {
@@ -85,6 +81,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.Schema
         /// </summary>
         /// <param name="info">The object that holds the serialized object data</param>
         /// <param name="context">The contextual information about the source or destination</param>
+        [Obsolete]
         private SchemaInfoException(SerializationInfo info, StreamingContext context)
             : base(info, context)
         {
@@ -96,7 +93,10 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement.Schema
         /// </summary>
         /// <param name="info">The SerializationInfo to populate with data.</param>
         /// <param name="context">The destination (see StreamingContext) for this serialization.</param>
+        [Obsolete]
+#pragma warning disable CS0809 // Obsolete member overrides non-obsolete member
         public override void GetObjectData(SerializationInfo info, StreamingContext context)
+#pragma warning restore CS0809 // Obsolete member overrides non-obsolete member
         {
             if (info != null)
             {

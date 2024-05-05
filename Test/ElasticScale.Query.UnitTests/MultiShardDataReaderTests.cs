@@ -19,22 +19,19 @@
 //  and grant it "control server" permissions.  Will likely need to revisit this
 //  at some point in the future.
 
-using Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement;
-using Microsoft.Azure.SqlDatabase.ElasticScale.Test.Common;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
-using System.Linq;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
-using System.Data.SqlClient;
 using System.Diagnostics;
-#if NETFRAMEWORK
-using System.Runtime.Remoting;
-#endif
 using System.IO;
-using System.Threading.Tasks;
+using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Azure.SqlDatabase.ElasticScale.ShardManagement;
+using Microsoft.Azure.SqlDatabase.ElasticScale.Test.Common;
+using Microsoft.Data.SqlClient;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Microsoft.Azure.SqlDatabase.ElasticScale.Query.UnitTests
 {
@@ -125,15 +122,15 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.Query.UnitTests
             //          BUT, since we are writing tests at a lower level than that, we need to open
             //          the connections manually here.  Hence the loop below.
             //
-            foreach (var conn in _shardConnection.ShardConnections)
+            foreach (var conn in _shardConnection.GetShardConnections())
             {
                 conn.Item2.Open();
             }
 
-            _conn1 = (SqlConnection)_shardConnection.ShardConnections[0].Item2;
-            _conn2 = (SqlConnection)_shardConnection.ShardConnections[1].Item2;
-            _conn3 = (SqlConnection)_shardConnection.ShardConnections[2].Item2;
-            _conns = _shardConnection.ShardConnections.Select(x => (SqlConnection)x.Item2);
+            _conn1 = (SqlConnection)_shardConnection.GetShardConnections()[0].Item2;
+            _conn2 = (SqlConnection)_shardConnection.GetShardConnections()[1].Item2;
+            _conn3 = (SqlConnection)_shardConnection.GetShardConnections()[2].Item2;
+            _conns = _shardConnection.GetShardConnections().Select(x => (SqlConnection)x.Item2);
         }
 
         /// <summary>
@@ -142,7 +139,7 @@ namespace Microsoft.Azure.SqlDatabase.ElasticScale.Query.UnitTests
         [TestCleanup()]
         public void MyTestCleanup()
         {
-            foreach (var conn in _shardConnection.ShardConnections)
+            foreach (var conn in _shardConnection.GetShardConnections())
             {
                 conn.Item2.Close();
             }
@@ -1036,29 +1033,6 @@ SELECT dbNameField, Test_int_Field, Test_bigint_Field  FROM ConsistentShardedTab
                 Assert.AreEqual(3, rowsRead, "Not all expected rows were read.");
             }
         }
-
-#if NETFRAMEWORK
-        /// <summary>
-        /// Check that we throw as expected when trying to call CreateObjRef.
-        /// </summary>
-        [TestMethod]
-        [ExpectedException(typeof(RemotingException))]
-        [TestCategory("ExcludeFromGatedCheckin")]
-        public void TestCreateObjRefFails()
-        {
-            // What we're doing:
-            // Set up a new sharded reader
-            // Try to call CreateObjRef on it.
-            // Verify that we threw as expected.
-            //
-            string selectSql = "SELECT dbNameField, Test_int_Field, Test_bigint_Field  FROM ConsistentShardedTable";
-
-            using (MultiShardDataReader sdr = GetShardedDbReader(_shardConnection, selectSql))
-            {
-                sdr.CreateObjRef(typeof(MultiShardDataReader));
-            }
-        }
-#endif
 
         /// <summary>
         /// Check that we can iterate through the result sets as expected comparing all the values
